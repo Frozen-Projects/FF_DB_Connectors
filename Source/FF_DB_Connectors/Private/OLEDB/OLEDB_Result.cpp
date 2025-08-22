@@ -27,7 +27,7 @@ bool UOLEDB_Result::SetRowSetBuffer(void* InRowSetBuffer)
 
 void* UOLEDB_Result::GetRowSetBuffer()
 {
-    this->RowSetBuffer;
+    return this->RowSetBuffer;
 }
 
 bool UOLEDB_Result::IsValid() const
