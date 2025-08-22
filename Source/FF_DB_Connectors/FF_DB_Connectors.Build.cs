@@ -33,7 +33,6 @@ public class FF_DB_Connectors : ModuleRules
 			new string[]
 			{
 				"Core",
-				// ... add other public dependencies that you statically link with here ...
 			}
 			);
 			
@@ -49,10 +48,7 @@ public class FF_DB_Connectors : ModuleRules
                 "JsonBlueprintUtilities",
                 "SQLiteSupport",
                 "SQLiteCore",
-                "cista",
-                "flatbuffers",
                 "leveldb",
-				// ... add private dependencies that you statically link with here ...	
 			}
 			);
 	}
