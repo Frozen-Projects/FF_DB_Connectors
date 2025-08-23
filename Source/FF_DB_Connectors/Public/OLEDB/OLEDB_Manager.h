@@ -41,6 +41,9 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
+	virtual FString ConnectionStringGenerator(FString ServerIp, int32 Port, FString Database, FString UserID, FString Password, FString Provider = "MSOLEDBSQL", bool bEnableEncryption = true, bool bTrustCertificate = true);
+
+	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
 	virtual bool Connect(FString ConnectionString);
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")

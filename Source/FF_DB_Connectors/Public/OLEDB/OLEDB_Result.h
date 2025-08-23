@@ -1,6 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+
+#include "Generic_Includes.h"
+#include "Generic_Structs.h"
 #include "OLEDB/OLEDB_Structs.h"
 
 #include "OLEDB_Result.generated.h"
@@ -18,6 +21,8 @@ private:
     static FString DBTypeToString(unsigned short InType);
     static void AppendFlagIfSet(FString& Out, unsigned long Flags, unsigned long Bit, const TCHAR* Name);
     static FString ColumnFlagsToString(unsigned long Flags);
+	static FString ColumnIdKindToString(int32 InKind);
+	static std::string GuidToString(GUID guid);
 
 protected:
 

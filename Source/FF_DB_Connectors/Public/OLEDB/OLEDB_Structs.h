@@ -1,18 +1,20 @@
 #pragma once
 
+#include "CoreMinimal.h"
 #include "OLEDB_Structs.generated.h"
-
-USTRUCT(BlueprintType)
-struct FF_DB_CONNECTORS_API FOLEDB_ColumnGuid
-{
-    GENERATED_BODY()
-
-};
 
 USTRUCT(BlueprintType)
 struct FF_DB_CONNECTORS_API FOLEDB_ColumnUName
 {
     GENERATED_BODY()
+
+public:
+
+	UPROPERTY(BlueprintReadOnly, Category = "Frozen Forest|Database Connectors|OLEDB")
+	int32 ulPropid;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Frozen Forest|Database Connectors|OLEDB")
+	FString pswzName;
 
 };
 
@@ -21,6 +23,8 @@ struct FF_DB_CONNECTORS_API FOLEDB_ColumnId
 {
     GENERATED_BODY()
 
+public:
+
     UPROPERTY(BlueprintReadOnly, Category = "Frozen Forest|Database Connectors|OLEDB")
     int32 eKind;
 
@@ -28,7 +32,7 @@ struct FF_DB_CONNECTORS_API FOLEDB_ColumnId
     FString eKindString;
 
     UPROPERTY(BlueprintReadOnly, Category = "Frozen Forest|Database Connectors|OLEDB")
-    FOLEDB_ColumnGuid Column_Guid;
+    FString Guid;
 
     UPROPERTY(BlueprintReadOnly, Category = "Frozen Forest|Database Connectors|OLEDB")
 	FOLEDB_ColumnUName Column_UName;

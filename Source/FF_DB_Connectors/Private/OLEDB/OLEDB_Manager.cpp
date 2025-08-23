@@ -29,6 +29,25 @@ void AOLEDB_Manager::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
+FString AOLEDB_Manager::ConnectionStringGenerator(FString ServerIp, int32 Port, FString Database, FString UserID, FString Password, FString Provider, bool bEnableEncryption, bool bTrustCertificate)
+{
+    if (ServerIp.IsEmpty() || Database.IsEmpty() || UserID.IsEmpty())
+    {
+        return FString();
+    }
+
+    const FString ConnectionString = 
+        "Provider=" + (Provider.IsEmpty() ? "MSOLEDBSQL" : Provider) + ";" +
+        "Data Source=" + ServerIp + "," + FString::FromInt(Port) + ";" +
+        "Initial Catalog=" + Database + ";" +
+        "User ID=" + UserID + ";" +
+        "Password=" + Password + ";" +
+		"Encrypt=" + (bEnableEncryption ? "Yes" : "No") + ";" +
+		"TrustServerCertificate=" + (bTrustCertificate ? "Yes" : "No") + ";";
+
+    return ConnectionString;
+}
+
 bool AOLEDB_Manager::InitializeCOM()
 {
 	HRESULT Result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -38,6 +57,11 @@ bool AOLEDB_Manager::InitializeCOM()
 
 bool AOLEDB_Manager::Connect(FString ConnectionString)
 {
+    if (ConnectionString.IsEmpty())
+    {
+        return false;
+    }
+
 	LPOLESTR WideString = const_cast<LPOLESTR>(*ConnectionString);
 	
 	IDataInitialize* pDataInit = nullptr;

@@ -16,6 +16,10 @@ public class FF_DB_Connectors : ModuleRules
         {
             bUseRTTI = true;
 
+            // For LevelDB support.
+            PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "ThirdParty", "leveldb", "Win64", "include"));
+            PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "ThirdParty", "leveldb", "Win64", "lib", "leveldb.lib"));
+
             // For LMDB support.
             PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "ThirdParty", "lmdb", "Win64"));
 
@@ -27,6 +31,13 @@ public class FF_DB_Connectors : ModuleRules
                 "uuid.lib",
             }
             );
+        }
+
+        if (Target.Platform == UnrealTargetPlatform.Android)
+        {
+            // For LevelDB support.
+            PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "ThirdParty", "leveldb", "Android", "include"));
+            PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "ThirdParty", "leveldb", "Android", "lib", "leveldb.a"));
         }
 
         PublicDependencyModuleNames.AddRange(
@@ -48,7 +59,6 @@ public class FF_DB_Connectors : ModuleRules
                 "JsonBlueprintUtilities",
                 "SQLiteSupport",
                 "SQLiteCore",
-                "leveldb",
 			}
 			);
 	}
