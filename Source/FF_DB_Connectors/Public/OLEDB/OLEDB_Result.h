@@ -13,10 +13,6 @@ struct FF_DB_CONNECTORS_API FOLEDB_ColumnInfo
 
 public:
 
-    // Column display name (can be empty for some providers)
-    UPROPERTY(BlueprintReadOnly, Category = "Frozen Forest|Database Connectors|OLEDB")
-    FString ColumnName;
-
     UPROPERTY(BlueprintReadOnly, Category = "Frozen Forest|Database Connectors|OLEDB")
     int32 Column_ID_Kind;
 
@@ -59,7 +55,7 @@ public:
 
     bool operator == (const FOLEDB_ColumnInfo& Other) const
     {
-		return ColumnName == Other.ColumnName && Column_ID_Kind == Other.Column_ID_Kind && Column_ID_Kind_String == Other.Column_ID_Kind_String && Column_ID_String == Other.Column_ID_String && DataType == Other.DataType && DataType_String == Other.DataType_String && ColumnSize == Other.ColumnSize && FlagsText == Other.FlagsText && Ordinal == Other.Ordinal && Precision == Other.Precision && Scale == Other.Scale && Flags == Other.Flags;
+		return Column_ID_Kind == Other.Column_ID_Kind && Column_ID_Kind_String == Other.Column_ID_Kind_String && Column_ID_String == Other.Column_ID_String && DataType == Other.DataType && DataType_String == Other.DataType_String && ColumnSize == Other.ColumnSize && FlagsText == Other.FlagsText && Ordinal == Other.Ordinal && Precision == Other.Precision && Scale == Other.Scale && Flags == Other.Flags;
     }
 
     bool operator != (const FOLEDB_ColumnInfo& Other) const
@@ -70,7 +66,6 @@ public:
 
 FORCEINLINE uint32 GetTypeHash(const FOLEDB_ColumnInfo& Key)
 {
-    uint32 Hash_ColumnName = GetTypeHash(Key.ColumnName);
     uint32 Hash_Column_ID_Kind = GetTypeHash(Key.Column_ID_Kind);
     uint32 Hash_Column_ID_Kind_String = GetTypeHash(Key.Column_ID_Kind_String);
     uint32 Hash_Column_ID_String = GetTypeHash(Key.Column_ID_String);
@@ -85,7 +80,6 @@ FORCEINLINE uint32 GetTypeHash(const FOLEDB_ColumnInfo& Key)
 
     uint32 GenericHash;
     FMemory::Memset(&GenericHash, 0, sizeof(uint32));
-    GenericHash = HashCombine(GenericHash, Hash_ColumnName);
     GenericHash = HashCombine(GenericHash, Hash_Column_ID_Kind);
     GenericHash = HashCombine(GenericHash, Hash_Column_ID_Kind_String);
     GenericHash = HashCombine(GenericHash, Hash_Column_ID_String);
@@ -133,10 +127,19 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
     virtual bool ResetCursor();
 
+    /*
+	* @param OutColumnInfo Map of column name to column info struct. Size is column count. Key index is column index.
+    */
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
-	virtual bool GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo);
+	virtual bool GetColumnsInfos(TMap<FString, FOLEDB_ColumnInfo>& OutColumnInfo);
 
     UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
     virtual bool GetColumnData(TArray<FString>& OutData, int32 ColumnIndex);
+
+    /*
+	* @param RowCounts (0-based) Row counts for each column. Size is column count.
+    */
+    UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
+    virtual bool GetAllData(TMap<FVector2D, FString>& OutData, TArray<int64>& RowCounts);
 
 };

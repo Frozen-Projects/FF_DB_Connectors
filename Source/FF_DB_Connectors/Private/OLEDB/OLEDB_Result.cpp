@@ -172,7 +172,7 @@ bool UOLEDB_Result::ResetCursor()
     }
 }
 
-bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
+bool UOLEDB_Result::GetColumnsInfos(TMap<FString, FOLEDB_ColumnInfo>& OutColumnInfo)
 {
     if (!this->RowSetBuffer)
     {
@@ -196,6 +196,7 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
         return false;
     }
 
+    // Number of columns.
     DBORDINAL cCols = 0;
     DBCOLUMNINFO* Columns = nullptr;
     OLECHAR* pStringsBuffer = nullptr;
@@ -209,15 +210,16 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
         return false;
     }
 
-    TArray< FOLEDB_ColumnInfo> Array_Columns_Infos;
+    TMap<FString, FOLEDB_ColumnInfo> Array_Columns_Infos;
     Array_Columns_Infos.Reserve((int32)cCols);
 
     for (ULONG i = 0; i < cCols; ++i)
     {
         const DBCOLUMNINFO& Each_Column = Columns[i];
 
+        const FString ColumnName = Each_Column.pwszName ? FString(Each_Column.pwszName) : FString();
+
         FOLEDB_ColumnInfo Each_Column_Info;
-        Each_Column_Info.ColumnName = Each_Column.pwszName ? FString(Each_Column.pwszName) : FString();
         Each_Column_Info.Ordinal = (int32)Each_Column.iOrdinal;
         Each_Column_Info.DataType_String = DBTypeToString(Each_Column.wType);
         Each_Column_Info.DataType = (int32)Each_Column.wType;
@@ -283,7 +285,7 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
                 break;
         }
 
-        Array_Columns_Infos.Add(MoveTemp(Each_Column_Info));
+        Array_Columns_Infos.Add(ColumnName, Each_Column_Info);
     }
 
     // Free OLE DB allocations
@@ -323,6 +325,7 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
         return false;
     }
 
+    // Number of columns.
     DBORDINAL cCols = 0;
     DBCOLUMNINFO* Columns = nullptr;
     OLECHAR* pStringsBuffer = nullptr;
@@ -345,6 +348,18 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
         return false;
     }
 
+    // Get accessor from rowset
+    IAccessor* pAccessor = nullptr;
+    Result = pRowset->QueryInterface(IID_IAccessor, (void**)&pAccessor);
+
+    if (FAILED(Result))
+    {
+        UE_LOG(LogTemp, Error, TEXT("QueryInterface(IAccessor) failed: 0x%08X"), Result);
+        CoTaskMemFree(Columns);
+        CoTaskMemFree(pStringsBuffer);
+        return false;
+    }
+
     // Create accessor for the specified column
     DBCOLUMNINFO& ColumnInfo = Columns[ColumnIndex];
     HACCESSOR hAccessor = DB_NULL_HACCESSOR;
@@ -360,18 +375,6 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
     Binding.obStatus = 0;
     Binding.obLength = sizeof(DBSTATUS);
     Binding.obValue = sizeof(DBSTATUS) + sizeof(DBLENGTH);
-
-    // Get accessor from rowset
-    IAccessor* pAccessor = nullptr;
-    Result = pRowset->QueryInterface(IID_IAccessor, (void**)&pAccessor);
-
-    if (FAILED(Result))
-    {
-        UE_LOG(LogTemp, Error, TEXT("QueryInterface(IAccessor) failed: 0x%08X"), Result);
-        CoTaskMemFree(Columns);
-        CoTaskMemFree(pStringsBuffer);
-        return false;
-    }
 
     Result = pAccessor->CreateAccessor(DBACCESSOR_ROWDATA, 1, &Binding, 0, &hAccessor, NULL);
 
@@ -508,5 +511,73 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
     CoTaskMemFree(pStringsBuffer);
 
 	this->bCursorAtStart = false;
+    return true;
+}
+
+bool UOLEDB_Result::GetAllData(TMap<FVector2D, FString>& OutData, TArray<int64>& RowCounts)
+{
+    if (!this->RowSetBuffer)
+    {
+        return false;
+    }
+
+    IRowset* pRowset = reinterpret_cast<IRowset*>(RowSetBuffer);
+
+    if (!pRowset)
+    {
+        return false;
+    }
+
+    // Ask for column metadata
+    IColumnsInfo* pColsInfo = nullptr;
+    HRESULT Result = pRowset->QueryInterface(IID_IColumnsInfo, (void**)&pColsInfo);
+
+    if (FAILED(Result))
+    {
+        UE_LOG(LogTemp, Error, TEXT("QueryInterface(IColumnsInfo) failed: 0x%08X"), Result);
+        return false;
+    }
+
+    // Number of columns.
+    DBORDINAL cCols = 0;
+    DBCOLUMNINFO* Columns = nullptr;
+    OLECHAR* pStringsBuffer = nullptr;
+
+    Result = pColsInfo->GetColumnInfo(&cCols, &Columns, &pStringsBuffer);
+    pColsInfo->Release();
+
+    if (FAILED(Result))
+    {
+        UE_LOG(LogTemp, Error, TEXT("GetColumnInfo failed: 0x%08X"), Result);
+        return false;
+    }
+
+    if (cCols <= 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("No columns in the result set."));
+        CoTaskMemFree(Columns);
+        CoTaskMemFree(pStringsBuffer);
+        return false;
+    }
+
+    OutData.Empty();
+    RowCounts.Empty();
+
+    for (ULONGLONG ColumnIndex = 0; ColumnIndex < cCols; ColumnIndex++)
+    {
+        TArray<FString> Each_Column_Data;
+        this->GetColumnData(Each_Column_Data, (int32)ColumnIndex);
+
+        const ULONGLONG RowCount = Each_Column_Data.Num();
+        RowCounts.Emplace((int64)RowCount);
+
+        for (ULONGLONG RowIndex = 0; RowIndex < RowCount; RowIndex++)
+        {
+            FVector2D Key = FVector2D((double)ColumnIndex, (double)RowIndex);
+            const FString EachRowData = Each_Column_Data[(int32)RowIndex];
+            OutData.Add(Key, EachRowData);
+        }
+    }
+
     return true;
 }
