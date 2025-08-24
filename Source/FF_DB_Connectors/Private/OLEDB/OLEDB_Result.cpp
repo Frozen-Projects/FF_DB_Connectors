@@ -145,6 +145,33 @@ FString UOLEDB_Result::AnsiToFString(const char* AnsiStr)
     return FString(WideBuffer.GetData());
 }
 
+bool UOLEDB_Result::ResetCursor()
+{
+    if (!this->RowSetBuffer)
+    {
+        return false;
+    }
+
+    IRowset* pRowset = reinterpret_cast<IRowset*>(RowSetBuffer);
+
+    if (!pRowset)
+    {
+        return false;
+    }
+
+    HRESULT Result = pRowset->RestartPosition(DB_NULL_HCHAPTER);
+
+    if (SUCCEEDED(Result))
+    {
+        return true;
+    }
+
+    else
+    {
+        return false;
+    }
+}
+
 bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
 {
     if (!this->RowSetBuffer)
@@ -279,6 +306,11 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
     if (!pRowset)
     {
         return false;
+    }
+
+    if (!this->bCursorAtStart)
+    {
+        this->ResetCursor();
     }
 
     // Get column info to validate the column index
@@ -475,5 +507,6 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
     CoTaskMemFree(Columns);
     CoTaskMemFree(pStringsBuffer);
 
+	this->bCursorAtStart = false;
     return true;
 }

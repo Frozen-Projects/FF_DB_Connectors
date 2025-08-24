@@ -110,6 +110,7 @@ private:
 
 	// Opaque IRowset* (no OLE DB headers in .h)
 	void* RowSetBuffer = nullptr;
+	bool bCursorAtStart = true;
 
     static FString DBTypeToString(unsigned short InType);
     static void AppendFlagIfSet(FString& Out, unsigned long Flags, unsigned long Bit, const TCHAR* Name);
@@ -128,6 +129,9 @@ public:
 	virtual bool SetRowSetBuffer(void* InRowSetBuffer);
 	virtual void* GetRowSetBuffer();
 	virtual bool IsValid() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
+    virtual bool ResetCursor();
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
 	virtual bool GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo);
