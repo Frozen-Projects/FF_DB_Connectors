@@ -22,7 +22,7 @@ private:
     static void AppendFlagIfSet(FString& Out, unsigned long Flags, unsigned long Bit, const TCHAR* Name);
     static FString ColumnFlagsToString(unsigned long Flags);
 	static FString ColumnIdKindToString(int32 InKind);
-	static std::string GuidToString(GUID guid);
+	static FString GuidToString(GUID guid);
 
 protected:
 

@@ -115,9 +115,10 @@ FString UOLEDB_Result::ColumnIdKindToString(int32 InKind)
     }
 }
 
-std::string UOLEDB_Result::GuidToString(GUID guid)
+FString UOLEDB_Result::GuidToString(GUID guid)
 {
-    return std::format("{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}", guid.Data1, guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3], guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+    const std::string Result = std::format("{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}", guid.Data1, guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3], guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+	return FString(Result.c_str());
 }
 
 bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
@@ -127,7 +128,6 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
         return false;
     }
 
-	TArray< FOLEDB_ColumnInfo> TempColumnInfo;
     IRowset* pRowset = reinterpret_cast<IRowset*>(RowSetBuffer);
 
     // Ask for column metadata
@@ -153,79 +153,87 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
         return false;
     }
 
-    TempColumnInfo.Reserve((int32)cCols);
+    TArray< FOLEDB_ColumnInfo> Array_Columns_Infos;
+    Array_Columns_Infos.Reserve((int32)cCols);
 
     for (ULONG i = 0; i < cCols; ++i)
     {
         const DBCOLUMNINFO& Each_Column = Columns[i];
 
-        FOLEDB_ColumnInfo Out;
-        Out.ColumnName = Each_Column.pwszName ? FString(Each_Column.pwszName) : FString();
-        Out.Ordinal = (int32)Each_Column.iOrdinal;
-        Out.DataType = DBTypeToString(Each_Column.wType);
-        Out.DataTypeCode = (int32)Each_Column.wType;
-        Out.ColumnSize = (int32)Each_Column.ulColumnSize;
-        Out.Precision = (int32)Each_Column.bPrecision;
-        Out.Scale = (int32)Each_Column.bScale;
-        Out.Flags = (int32)Each_Column.dwFlags;
-        Out.FlagsText = ColumnFlagsToString(Each_Column.dwFlags);
+        FOLEDB_ColumnInfo Each_Column_Info;
+        Each_Column_Info.ColumnName = Each_Column.pwszName ? FString(Each_Column.pwszName) : FString();
+        Each_Column_Info.Ordinal = (int32)Each_Column.iOrdinal;
+        Each_Column_Info.DataType = DBTypeToString(Each_Column.wType);
+        Each_Column_Info.DataTypeCode = (int32)Each_Column.wType;
+        Each_Column_Info.ColumnSize = (int32)Each_Column.ulColumnSize;
+        Each_Column_Info.Precision = (int32)Each_Column.bPrecision;
+        Each_Column_Info.Scale = (int32)Each_Column.bScale;
+        Each_Column_Info.Flags = (int32)Each_Column.dwFlags;
+        Each_Column_Info.FlagsText = ColumnFlagsToString(Each_Column.dwFlags);
 
-		FOLEDB_ColumnId ColumnId;
-		ColumnId.eKind = (int32)Each_Column.columnid.eKind;
-		ColumnId.eKindString = UOLEDB_Result::ColumnIdKindToString((int32)Each_Column.columnid.eKind);
-		
-        if (Each_Column.columnid.eKind == DBKIND_GUID || Each_Column.columnid.eKind == DBKIND_PGUID_NAME || Each_Column.columnid.eKind == DBKIND_PGUID_PROPID)
+		const int32 eKind = (int32)Each_Column.columnid.eKind;
+		Each_Column_Info.Column_ID_Kind = eKind;
+		Each_Column_Info.Column_ID_Kind_Str = UOLEDB_Result::ColumnIdKindToString(eKind).Len();
+
+        switch (eKind)
         {
-            const GUID Guid = *Each_Column.columnid.uGuid.pguid;
-			const std::string GuidStr = UOLEDB_Result::GuidToString(Guid);
-			const FString GuidFStr = FString(GuidStr.c_str());
-            ColumnId.Guid = GuidFStr;
+            case DBKIND_GUID_NAME:
+            {
+                const FString GuidStr = UOLEDB_Result::GuidToString(Each_Column.columnid.uGuid.guid);
+			    const FString uName = Each_Column.columnid.uName.pwszName ? FString(Each_Column.columnid.uName.pwszName) : FString();
+			    Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + uName;
+            
+                break;
+            }
+
+		    case DBKIND_GUID_PROPID:
+            {
+                const FString GuidStr = UOLEDB_Result::GuidToString(Each_Column.columnid.uGuid.guid);
+			    const FString ulPropid = FString::FromInt((int32)Each_Column.columnid.uName.ulPropid);
+			    Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + ulPropid;
+
+			    break;
+            }
+
+            case DBKIND_NAME:
+                Each_Column_Info.Column_ID_String = Each_Column.columnid.uName.pwszName ? FString(Each_Column.columnid.uName.pwszName) : FString();
+                break;
+
+            case DBKIND_PGUID_NAME:
+            {
+                const GUID* pguid = Each_Column.columnid.uGuid.pguid;
+                const FString GuidStr = pguid ? UOLEDB_Result::GuidToString(*pguid) : TEXT("<null-pguid>");
+			    const FString uName = Each_Column.columnid.uName.pwszName ? FString(Each_Column.columnid.uName.pwszName) : FString();
+			    Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + uName;
+
+			    break;
+            }
+
+            case DBKIND_PGUID_PROPID:
+		    {
+				const GUID* pguid = Each_Column.columnid.uGuid.pguid;
+			    const FString GuidStr = pguid ? UOLEDB_Result::GuidToString(*pguid) : TEXT("<null-pguid>");
+			    const FString ulPropid = FString::FromInt((int32)Each_Column.columnid.uName.ulPropid);
+			    Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + ulPropid;
+                break;
+		    }
+
+            case DBKIND_PROPID:
+			    Each_Column_Info.Column_ID_String = FString::FromInt((int32)Each_Column.columnid.uName.ulPropid);
+			    break;
+
+            case DBKIND_GUID:
+			    Each_Column_Info.Column_ID_String = UOLEDB_Result::GuidToString(Each_Column.columnid.uGuid.guid);
+                break;
         }
 
-        else if (Each_Column.columnid.eKind == DBKIND_GUID_NAME || Each_Column.columnid.eKind == DBKIND_GUID_PROPID || Each_Column.columnid.eKind == DBKIND_GUID)
-        {
-			const GUID Guid = Each_Column.columnid.uGuid.guid;
-			const std::string GuidStr = UOLEDB_Result::GuidToString(Guid);
-            const FString GuidFStr = FString(GuidStr.c_str());
-            ColumnId.Guid = GuidFStr;
-		}
-
-        else
-        {
-			ColumnId.Guid = FString();
-        }
-
-		FOLEDB_ColumnUName ColumnUName;
-
-        if (Each_Column.columnid.eKind == DBKIND_NAME || Each_Column.columnid.eKind == DBKIND_PGUID_NAME)
-        {
-            ColumnUName.pswzName = Each_Column.columnid.uName.pwszName ? FString(Each_Column.columnid.uName.pwszName) : FString();
-        }
-
-        else
-        {
-            ColumnUName.pswzName = FString();
-        }
-
-        if (Each_Column.columnid.eKind == DBKIND_PROPID || Each_Column.columnid.eKind == DBKIND_GUID_PROPID || Each_Column.columnid.eKind == DBKIND_PGUID_PROPID)
-        {
-            ColumnUName.ulPropid = (int32)Each_Column.columnid.uName.ulPropid;
-        }
-
-        else
-        {
-            ColumnUName.ulPropid = 0;
-		}
-
-		ColumnId.Column_UName = MoveTemp(ColumnUName);
-		Out.Column_ID = MoveTemp(ColumnId);
-        TempColumnInfo.Add(MoveTemp(Out));
+        Array_Columns_Infos.Add(MoveTemp(Each_Column_Info));
     }
 
     // Free OLE DB allocations
     CoTaskMemFree(Columns);
     CoTaskMemFree(pStringsBuffer);
 
-	OutColumnInfo = MoveTemp(TempColumnInfo);
+	OutColumnInfo = MoveTemp(Array_Columns_Infos);
     return true;
 }
