@@ -1,4 +1,4 @@
-#include "OLEDB/OLEDB_Result.h"
+﻿#include "OLEDB/OLEDB_Result.h"
 #include "OLEDB/OLEDB_Includes.h"
 
 void UOLEDB_Result::BeginDestroy()
@@ -130,6 +130,11 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
 
     IRowset* pRowset = reinterpret_cast<IRowset*>(RowSetBuffer);
 
+    if (!pRowset)
+    {
+        return false;
+	}
+
     // Ask for column metadata
     IColumnsInfo* pColsInfo = nullptr;
     HRESULT Result = pRowset->QueryInterface(IID_IColumnsInfo, (void**)&pColsInfo);
@@ -163,8 +168,8 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
         FOLEDB_ColumnInfo Each_Column_Info;
         Each_Column_Info.ColumnName = Each_Column.pwszName ? FString(Each_Column.pwszName) : FString();
         Each_Column_Info.Ordinal = (int32)Each_Column.iOrdinal;
-        Each_Column_Info.DataType = DBTypeToString(Each_Column.wType);
-        Each_Column_Info.DataTypeCode = (int32)Each_Column.wType;
+        Each_Column_Info.DataType_String = DBTypeToString(Each_Column.wType);
+        Each_Column_Info.DataType = (int32)Each_Column.wType;
         Each_Column_Info.ColumnSize = (int32)Each_Column.ulColumnSize;
         Each_Column_Info.Precision = (int32)Each_Column.bPrecision;
         Each_Column_Info.Scale = (int32)Each_Column.bScale;
@@ -173,7 +178,7 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
 
 		const int32 eKind = (int32)Each_Column.columnid.eKind;
 		Each_Column_Info.Column_ID_Kind = eKind;
-		Each_Column_Info.Column_ID_Kind_Str = UOLEDB_Result::ColumnIdKindToString(eKind).Len();
+		Each_Column_Info.Column_ID_Kind_String = UOLEDB_Result::ColumnIdKindToString(eKind).Len();
 
         switch (eKind)
         {
@@ -236,4 +241,9 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
 
 	OutColumnInfo = MoveTemp(Array_Columns_Infos);
     return true;
+}
+
+bool UOLEDB_Result::GetColumnData(TArray<FString>& Out_Data, int32 ColumnIndex)
+{
+
 }
