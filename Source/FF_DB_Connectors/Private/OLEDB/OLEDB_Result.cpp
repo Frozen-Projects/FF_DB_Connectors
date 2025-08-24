@@ -121,6 +121,30 @@ FString UOLEDB_Result::GuidToString(GUID guid)
 	return FString(Result.c_str());
 }
 
+FString UOLEDB_Result::AnsiToFString(const char* AnsiStr)
+{
+    if (!AnsiStr)
+    {
+        return FString();
+    }
+
+    // Get required buffer size for conversion
+    int32 RequiredSize = MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, AnsiStr, -1, nullptr, 0);
+
+    if (RequiredSize <= 0)
+    {
+        return FString();
+    };
+
+    // Allocate buffer
+    TArray<WCHAR> WideBuffer;
+    WideBuffer.SetNumUninitialized(RequiredSize);
+
+    MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, AnsiStr, -1, WideBuffer.GetData(), RequiredSize);
+
+    return FString(WideBuffer.GetData());
+}
+
 bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
 {
     if (!this->RowSetBuffer)
@@ -243,7 +267,213 @@ bool UOLEDB_Result::GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo)
     return true;
 }
 
-bool UOLEDB_Result::GetColumnData(TArray<FString>& Out_Data, int32 ColumnIndex)
+bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
 {
+    if (!this->RowSetBuffer)
+    {
+        return false;
+    }
 
+    IRowset* pRowset = reinterpret_cast<IRowset*>(RowSetBuffer);
+
+    if (!pRowset)
+    {
+        return false;
+    }
+
+    // Get column info to validate the column index
+    IColumnsInfo* pColsInfo = nullptr;
+    HRESULT Result = pRowset->QueryInterface(IID_IColumnsInfo, (void**)&pColsInfo);
+
+    if (FAILED(Result))
+    {
+        UE_LOG(LogTemp, Error, TEXT("QueryInterface(IColumnsInfo) failed: 0x%08X"), Result);
+        return false;
+    }
+
+    DBORDINAL cCols = 0;
+    DBCOLUMNINFO* Columns = nullptr;
+    OLECHAR* pStringsBuffer = nullptr;
+
+    Result = pColsInfo->GetColumnInfo(&cCols, &Columns, &pStringsBuffer);
+    pColsInfo->Release();
+
+    if (FAILED(Result))
+    {
+        UE_LOG(LogTemp, Error, TEXT("GetColumnInfo failed: 0x%08X"), Result);
+        return false;
+    }
+
+    // Check if the column index is valid
+    if (ColumnIndex < 0 || ColumnIndex >= (int32)cCols)
+    {
+        UE_LOG(LogTemp, Error, TEXT("Invalid column index: %d (column count: %d)"), ColumnIndex, cCols);
+        CoTaskMemFree(Columns);
+        CoTaskMemFree(pStringsBuffer);
+        return false;
+    }
+
+    // Create accessor for the specified column
+    DBCOLUMNINFO& ColumnInfo = Columns[ColumnIndex];
+    HACCESSOR hAccessor = DB_NULL_HACCESSOR;
+    DBBINDING Binding = { 0 };
+
+    // Set up binding for the column
+    Binding.iOrdinal = ColumnInfo.iOrdinal;
+    Binding.dwPart = DBPART_VALUE | DBPART_STATUS | DBPART_LENGTH;
+    Binding.dwMemOwner = DBMEMOWNER_CLIENTOWNED;
+    Binding.eParamIO = DBPARAMIO_NOTPARAM;
+    Binding.cbMaxLen = ColumnInfo.ulColumnSize;
+    Binding.wType = ColumnInfo.wType;
+    Binding.obStatus = 0;
+    Binding.obLength = sizeof(DBSTATUS);
+    Binding.obValue = sizeof(DBSTATUS) + sizeof(DBLENGTH);
+
+    // Get accessor from rowset
+    IAccessor* pAccessor = nullptr;
+    Result = pRowset->QueryInterface(IID_IAccessor, (void**)&pAccessor);
+
+    if (FAILED(Result))
+    {
+        UE_LOG(LogTemp, Error, TEXT("QueryInterface(IAccessor) failed: 0x%08X"), Result);
+        CoTaskMemFree(Columns);
+        CoTaskMemFree(pStringsBuffer);
+        return false;
+    }
+
+    Result = pAccessor->CreateAccessor(DBACCESSOR_ROWDATA, 1, &Binding, 0, &hAccessor, NULL);
+
+    if (FAILED(Result))
+    {
+        UE_LOG(LogTemp, Error, TEXT("CreateAccessor failed: 0x%08X"), Result);
+        pAccessor->Release();
+        CoTaskMemFree(Columns);
+        CoTaskMemFree(pStringsBuffer);
+        return false;
+    }
+
+    // Prepare for fetching rows
+    HROW* phRow = new HROW[1];
+    DBCOUNTITEM cRowsObtained = 0;
+    BYTE* pData = new BYTE[Binding.cbMaxLen + sizeof(DBSTATUS) + sizeof(DBLENGTH)];
+
+    // Clear the output array
+    OutData.Empty();
+
+    // Fetch rows
+    while (true)
+    {
+        Result = pRowset->GetNextRows(DB_NULL_HCHAPTER, 0, 1, &cRowsObtained, &phRow);
+
+        if (FAILED(Result) || cRowsObtained == 0)
+        {
+            break;
+        }
+
+        // Initialize the buffer to zero
+        FMemory::Memzero(pData, Binding.cbMaxLen + sizeof(DBSTATUS) + sizeof(DBLENGTH));
+
+        // Get data for the row
+        Result = pRowset->GetData(phRow[0], hAccessor, pData);
+
+        if (SUCCEEDED(Result))
+        {
+            DBSTATUS* pStatus = (DBSTATUS*)pData;
+            DBLENGTH* pLength = (DBLENGTH*)(pData + sizeof(DBSTATUS));
+            void* pValue = (void*)(pData + sizeof(DBSTATUS) + sizeof(DBLENGTH));
+
+            if (*pStatus == DBSTATUS_S_OK)
+            {
+                FString Value;
+
+                // Convert the data to FString based on the column type
+                switch (Binding.wType)
+                {
+                    case DBTYPE_WSTR:
+                    {
+                        // Handle UTF-16 encoded wide strings (OLEDB's native format)
+                        WCHAR* wideStr = (WCHAR*)pValue;
+
+                        // Get the actual length in characters (not including null terminator)
+                        int32 Length = (*pLength) / sizeof(WCHAR);
+                        
+                        if (Length > 0)
+                        {
+							Value.AppendChars(wideStr, Length);
+                        }
+
+                        else
+                        {
+                            Value = TEXT("");
+                        }
+
+                        break;
+                    }
+
+                    case DBTYPE_STR:
+                    {
+                        // For ANSI strings, assume they're in UTF-8 encoding
+                        int32 Length = (*pLength);
+                        
+                        if (Length > 0)
+                        {
+							Value = UOLEDB_Result::AnsiToFString((const char*)pValue);
+                        }
+
+                        else
+                        {
+                            Value = TEXT("");
+                        }
+
+                        break;
+                    }
+
+                    case DBTYPE_I2:
+                        Value = FString::FromInt(*(int16*)pValue);
+                        break;
+                    case DBTYPE_I4:
+                        Value = FString::FromInt(*(int32*)pValue);
+                        break;
+                    case DBTYPE_R4:
+                        Value = FString::SanitizeFloat(*(float*)pValue);
+                        break;
+                    case DBTYPE_R8:
+                        Value = FString::SanitizeFloat(*(double*)pValue);
+                        break;
+                    case DBTYPE_BOOL:
+                        Value = *(VARIANT_BOOL*)pValue ? TEXT("True") : TEXT("False");
+                        break;
+                    case DBTYPE_GUID:
+                        Value = GuidToString(*(GUID*)pValue);
+                        break;
+                    default:
+                        Value = TEXT("[Unsupported type]");
+                        break;
+                }
+
+                OutData.Add(Value);
+            }
+            else if (*pStatus == DBSTATUS_S_ISNULL)
+            {
+                OutData.Add(TEXT("NULL"));
+            }
+            else
+            {
+                OutData.Add(FString::Printf(TEXT("[Error: %d]"), *pStatus));
+            }
+        }
+
+        // Release the row handle
+        pRowset->ReleaseRows(1, phRow, NULL, NULL, NULL);
+    }
+
+    // Clean up
+    pAccessor->ReleaseAccessor(hAccessor, NULL);
+    pAccessor->Release();
+    delete[] pData;
+    delete[] phRow;
+    CoTaskMemFree(Columns);
+    CoTaskMemFree(pStringsBuffer);
+
+    return true;
 }

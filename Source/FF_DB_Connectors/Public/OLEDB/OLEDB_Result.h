@@ -116,6 +116,7 @@ private:
     static FString ColumnFlagsToString(unsigned long Flags);
 	static FString ColumnIdKindToString(int32 InKind);
 	static FString GuidToString(GUID guid);
+	static FString AnsiToFString(const char* AnsiStr);
 
 protected:
 
@@ -132,6 +133,6 @@ public:
 	virtual bool GetColumnsInfos(TArray<FOLEDB_ColumnInfo>& OutColumnInfo);
 
     UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
-    virtual bool GetColumnData(TArray<FString>& Out_Data, int32 ColumnIndex);
+    virtual bool GetColumnData(TArray<FString>& OutData, int32 ColumnIndex);
 
 };
