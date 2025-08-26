@@ -1,5 +1,29 @@
 #include "ODBC/MS_ODBC_Result.h"
 
+FString UODBC_Result::AnsiToFString(const char* AnsiStr)
+{
+    if (!AnsiStr)
+    {
+        return FString();
+    }
+
+    // Get required buffer size for conversion
+    int32 RequiredSize = MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, AnsiStr, -1, nullptr, 0);
+
+    if (RequiredSize <= 0)
+    {
+        return FString();
+    };
+
+    // Allocate buffer
+    TArray<WCHAR> WideBuffer;
+    WideBuffer.SetNumUninitialized(RequiredSize);
+
+    MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, AnsiStr, -1, WideBuffer.GetData(), RequiredSize);
+
+    return FString(WideBuffer.GetData());
+}
+
 bool UODBC_Result::SetQueryResult(const SQLHSTMT& In_Handle, const FString& In_Query)
 {
     if (!In_Handle)
@@ -95,6 +119,8 @@ bool UODBC_Result::Result_Record(FString& Out_Code)
             for (int32 Index_Column_Raw = 0; Index_Column_Raw < this->Count_Column; Index_Column_Raw++)
             {
                 const FVector2D Position = FVector2D(Index_Column_Raw, Index_Row);
+                
+				// ODBC column index starts from 1.
                 const int32 Index_Column = Index_Column_Raw + 1;
 
                 if (!bIsMetaDataCollected)
@@ -106,6 +132,9 @@ bool UODBC_Result::Result_Record(FString& Out_Code)
                     }
                 }
 
+				const FString Column_Name = Array_MetaData[Index_Column_Raw].Column_Name;
+				const int32 DataType = Array_MetaData[Index_Column_Raw].DataType;
+
                 SQLLEN PreviewLenght;
                 SQLCHAR PreviewData[SQL_MAX_TEXT_LENGHT];
                 SQLRETURN RetCode = SQLGetData(this->SQL_Handle_Statement, Index_Column, SQL_CHAR, PreviewData, SQL_MAX_TEXT_LENGHT, &PreviewLenght);
@@ -116,101 +145,16 @@ bool UODBC_Result::Result_Record(FString& Out_Code)
                     return false;
                 }
 
-                FString PreviewString;
-                PreviewString.AppendChars((const char*)PreviewData, PreviewLenght);
-                PreviewString.TrimEndInline();
+				std::stringstream Stream;
+                Stream.write((char*)&PreviewData, PreviewLenght);
+				const std::string RawString = Stream.str();
 
-                FMS_ODBC_MetaData EachMetaData = Array_MetaData[Index_Column_Raw];
+                const FString PreviewString = UODBC_Result::AnsiToFString(RawString.c_str());
 
                 FMS_ODBC_DataValue EachData;
-                EachData.ColumnName = EachMetaData.Column_Name;
-                EachData.DataType = EachMetaData.DataType;
+                EachData.ColumnName = Column_Name;
+                EachData.DataType = DataType;
                 EachData.Preview = PreviewString;
-
-                switch (EachMetaData.DataType)
-                {
-                    // NVARCHAR & DATE & TIME
-                    case -9:
-                    {
-                        EachData.String = PreviewString;
-                        break;
-                    }
-
-                    // INT64 & BIGINT
-                    case -5:
-                    {
-                        EachData.Integer64 = FCString::Atoi64(*PreviewString);
-                        break;
-                    }
-
-                    // TIMESTAMP
-                    case -2:
-                    {
-                        std::string RawString = TCHAR_TO_UTF8(*PreviewString);
-                        unsigned int TimeStampInt = std::stoul(RawString, nullptr, 16);
-
-                        EachData.Integer64 = TimeStampInt;
-                        EachData.Preview += " - " + FString::FromInt(TimeStampInt);
-                        break;
-                    }
-
-                    // TEXT
-                    case -1:
-                    {
-                        EachData.String = PreviewString;
-                        break;
-                    }
-
-                    // INT32
-                    case 4:
-                    {
-                        EachData.Integer64 = FCString::Atoi(*PreviewString);
-                        break;
-                    }
-
-                    // FLOAT & DOUBLE
-                    case 6:
-                    {
-                        EachData.Double = FCString::Atod(*PreviewString);
-                        break;
-                    }
-
-                    // DATETIME
-                    case 93:
-                    {
-                        TArray<FString> Array_Sections;
-                        PreviewString.ParseIntoArray(Array_Sections, TEXT(" "));
-
-                        FString Date = Array_Sections[0];
-                        FString Time = Array_Sections[1];
-
-                        TArray<FString> Array_Sections_Date;
-                        Date.ParseIntoArray(Array_Sections_Date, TEXT("-"));
-                        int32 Year = FCString::Atoi(*Array_Sections_Date[0]);
-                        int32 Month = FCString::Atoi(*Array_Sections_Date[1]);
-                        int32 Day = FCString::Atoi(*Array_Sections_Date[2]);
-
-                        TArray<FString> Array_Sections_Time;
-                        Time.ParseIntoArray(Array_Sections_Time, TEXT("."));
-                        int32 Milliseconds = FCString::Atoi(*Array_Sections_Time[1]);
-                        FString Clock = Array_Sections_Time[0];
-
-                        TArray<FString> Array_Sections_Clock;
-                        Clock.ParseIntoArray(Array_Sections_Clock, TEXT(":"));
-                        int32 Hours = FCString::Atoi(*Array_Sections_Clock[0]);
-                        int32 Minutes = FCString::Atoi(*Array_Sections_Clock[1]);
-                        int32 Seconds = FCString::Atoi(*Array_Sections_Clock[2]);
-
-                        EachData.DateTime = FDateTime(Year, Month, Day, Hours, Minutes, Seconds, Milliseconds);
-                        break;
-                    }
-
-                    default:
-                    {
-                        EachData.Note = "Currently there is no parser for this data type. Please convert it to another known type in your query !";
-                        break;
-                    }
-                }
 
                 Temp_Data_Pool.Add(Position, EachData);
             }

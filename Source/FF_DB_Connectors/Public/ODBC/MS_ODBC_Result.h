@@ -98,11 +98,12 @@ protected:
 	int32 Count_Column = 0;
 	int32 Affected_Rows = 0;
 
-	virtual bool SetQueryResult(const SQLHSTMT& In_Handle, const FString& In_Query);
-	virtual bool GetEachMetaData(FMS_ODBC_MetaData& Out_MetaData, int32 ColumnIndex);
 	static FString AnsiToFString(const char* AnsiStr);
 
 public:
+
+	virtual bool SetQueryResult(const SQLHSTMT& In_Handle, const FString& In_Query);
+	virtual bool GetEachMetaData(FMS_ODBC_MetaData& Out_MetaData, int32 ColumnIndex);
 
 	UFUNCTION(BlueprintCallable)
 	virtual bool Result_Record(FString& Out_Code);

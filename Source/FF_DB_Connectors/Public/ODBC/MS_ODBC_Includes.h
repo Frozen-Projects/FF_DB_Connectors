@@ -14,5 +14,5 @@ THIRD_PARTY_INCLUDES_START
 #include "Windows/HideWindowsPlatformTypes.h"
 
 #include <string>
-
+#include <sstream>
 THIRD_PARTY_INCLUDES_END
