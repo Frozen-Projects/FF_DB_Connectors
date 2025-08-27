@@ -105,7 +105,7 @@ int32 FMS_ODBC_QueryHandler::Record_Result(FString& Out_Code)
     SQLSMALLINT Temp_ColumnNumber;
     SQLNumResultCols(this->SQL_Handle, &Temp_ColumnNumber);
 
-    if (Temp_AffectedRows == 0 || Temp_ColumnNumber == 0)
+    if (Temp_ColumnNumber == 0)
     {
 		this->Affected_Rows = Temp_AffectedRows;
         Out_Code = "FF Microsoft ODBC : This query doesn't have result. It is for update only !";

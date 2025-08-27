@@ -9,6 +9,12 @@
 
 #include "OLEDB_Manager.generated.h"
 
+UDELEGATE(BlueprintAuthorityOnly)
+DECLARE_DYNAMIC_DELEGATE_TwoParams(FDelegate_OLEDB_Connection, bool, IsSuccessfull, FString, Out_Code);
+
+UDELEGATE(BlueprintAuthorityOnly)
+DECLARE_DYNAMIC_DELEGATE_FourParams(FDelegate_OLEDB_Execute, bool, IsSuccessfull, FString, Out_Code, UOLEDB_Result*, Out_Result, int64, Out_Affected);
+
 UCLASS()
 class FF_DB_CONNECTORS_API AOLEDB_Manager : public AActor
 {
@@ -20,8 +26,10 @@ private:
 	void* DB_Session = nullptr;
 	void* DB_Command = nullptr;
 	bool bCOMInitialized = false;
+	FString ConnectionString;
 
 	virtual bool InitializeCOM();
+	virtual bool ConnectDatabase(FString& OutCode, const FString& ConnectionString);
 	virtual bool SendQuery(void*& RowSetBuffer, FString Query);
 
 protected:
@@ -40,11 +48,14 @@ public:
 	// Called every frame.
 	virtual void Tick(float DeltaTime) override;
 
+	/*
+	* @param Port : Default SQL Server port is 1433. If you set it to 0, it will be 1433.
+	*/
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
-	virtual FString ConnectionStringGenerator(FString ServerIp, int32 Port, FString Database, FString UserID, FString Password, FString Provider = "MSOLEDBSQL", bool bEnableEncryption = true, bool bTrustCertificate = true);
+	virtual FString CreateConnectionString(FString ServerIp, FString Database, FString UserID, FString Password, FString Provider = "MSOLEDBSQL", int32 Port = 1433, bool bEnableEncryption = true, bool bTrustCertificate = true);
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
-	virtual bool Connect(FString ConnectionString);
+	virtual void CreateConnection(FDelegate_OLEDB_Connection DelegateConnection, const FString& In_ConStr);
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
 	virtual bool ExecuteOnly(FString Query);

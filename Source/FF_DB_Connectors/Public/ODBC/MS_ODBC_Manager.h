@@ -14,20 +14,12 @@ UDELEGATE(BlueprintAuthorityOnly)
 DECLARE_DYNAMIC_DELEGATE_TwoParams(FDelegate_ODBC_Connection, bool, IsSuccessfull, FString, Out_Code);
 
 UDELEGATE(BlueprintAuthorityOnly)
-DECLARE_DYNAMIC_DELEGATE_FourParams(FDelegate_ODBC_Execute, bool, IsSuccessfull, FString, Out_Code, UODBC_Result*, Out_Result, int64, Out_Affected);
+DECLARE_DYNAMIC_DELEGATE_FourParams(FDelegate_ODBC_Execute, int32, IsSuccessfull, FString, Out_Code, UODBC_Result*, Out_Result, int64, Out_Affected);
 
 UCLASS()
 class FF_DB_CONNECTORS_API AODBC_Manager : public AActor
 {
 	GENERATED_BODY()
-	
-protected:
-	
-	// Called when the game starts or when spawned.
-	virtual void BeginPlay() override;
-
-	// Called when the game ends or when destroyed.
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 
@@ -36,6 +28,14 @@ private:
 	SQLHDBC SQL_Handle_Connection = NULL;
 
 	virtual bool ConnectDatabase(FString& Out_Code, const FString& ConnectionString);
+
+protected:
+
+	// Called when the game starts or when spawned.
+	virtual void BeginPlay() override;
+
+	// Called when the game ends or when destroyed.
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 public:	
 	
@@ -49,10 +49,10 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
-	virtual bool CreateConnectionString(FString& ConnectionString, FString TargetServer, FString Username, FString Password, FString ServerInstance = "SQLEXPRESS");
+	virtual bool CreateConnectionString(FString& Out_ConStr, FString ODBC_Source, FString Username, FString Password, FString ServerInstance = "SQLEXPRESS");
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
-	virtual void CreateConnection(FDelegate_ODBC_Connection DelegateConnection, const FString& ConnectionString);
+	virtual void CreateConnection(FDelegate_ODBC_Connection DelegateConnection, const FString& In_ConStr);
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
 	virtual void Disconnect();

@@ -13,7 +13,6 @@ AOLEDB_Manager::AOLEDB_Manager()
 void AOLEDB_Manager::BeginPlay()
 {
 	Super::BeginPlay();
-    this->InitializeCOM();
 }
 
 // Called when the game end or when destroyed.
@@ -29,25 +28,6 @@ void AOLEDB_Manager::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
-FString AOLEDB_Manager::ConnectionStringGenerator(FString ServerIp, int32 Port, FString Database, FString UserID, FString Password, FString Provider, bool bEnableEncryption, bool bTrustCertificate)
-{
-    if (ServerIp.IsEmpty() || Database.IsEmpty() || UserID.IsEmpty())
-    {
-        return FString();
-    }
-
-    const FString ConnectionString = 
-        "Provider=" + (Provider.IsEmpty() ? "MSOLEDBSQL" : Provider) + ";" +
-        "Data Source=" + ServerIp + "," + FString::FromInt(Port) + ";" +
-        "Initial Catalog=" + Database + ";" +
-        "User ID=" + UserID + ";" +
-        "Password=" + Password + ";" +
-		"Encrypt=" + (bEnableEncryption ? "Yes" : "No") + ";" +
-		"TrustServerCertificate=" + (bTrustCertificate ? "Yes" : "No") + ";";
-
-    return ConnectionString;
-}
-
 bool AOLEDB_Manager::InitializeCOM()
 {
 	HRESULT Result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -55,21 +35,31 @@ bool AOLEDB_Manager::InitializeCOM()
 	return this->bCOMInitialized;
 }
 
-bool AOLEDB_Manager::Connect(FString ConnectionString)
+bool AOLEDB_Manager::ConnectDatabase(FString& OutCode, const FString& In_ConStr)
 {
-    if (ConnectionString.IsEmpty())
+    if (In_ConStr.IsEmpty())
     {
+		OutCode = "FF Microsoft OLE DB : Connection string shouldn't be empty !";
         return false;
     }
 
-	LPOLESTR WideString = const_cast<LPOLESTR>(*ConnectionString);
+    if (!this->bCOMInitialized)
+    {
+        if (!this->InitializeCOM())
+        {
+			OutCode = "FF Microsoft OLE DB : Failed to initialize COM library.";
+            return false;
+        }
+    }
+
+	LPOLESTR WideString = const_cast<LPOLESTR>(*In_ConStr);
 	
 	IDataInitialize* pDataInit = nullptr;
 	HRESULT Result = CoCreateInstance(CLSID_MSDAINITIALIZE, nullptr, CLSCTX_INPROC_SERVER, IID_IDataInitialize, (void**)&pDataInit);
 
 	if (FAILED(Result) || !pDataInit)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to create IDataInitialize instance. HRESULT: 0x%08X"), Result);
+		OutCode = FString::Printf(TEXT("FF Microsoft OLE DB : Failed to create IDataInitialize instance. HRESULT: 0x%08X"), Result);
 		return false;
 	}
 
@@ -80,7 +70,7 @@ bool AOLEDB_Manager::Connect(FString ConnectionString)
     
     if (FAILED(Result))
     {
-        UE_LOG(LogTemp, Error, TEXT("GetDataSource failed: 0x%08X"), Result);
+		OutCode = FString::Printf(TEXT("FF Microsoft OLE DB : GetDataSource failed. HRESULT: 0x%08X"), Result);
         return false;
     }
 
@@ -88,8 +78,9 @@ bool AOLEDB_Manager::Connect(FString ConnectionString)
    
     if (FAILED(Result))
     {
-        UE_LOG(LogTemp, Error, TEXT("IDBInitialize::Initialize failed: 0x%08X"), Result);
         pDBInit->Release();
+
+		OutCode = FString::Printf(TEXT("FF Microsoft OLE DB : IDBInitialize::Initialize failed. HRESULT: 0x%08X"), Result);
         return false;
     }
 
@@ -99,9 +90,10 @@ bool AOLEDB_Manager::Connect(FString ConnectionString)
    
     if (FAILED(Result))
     {
-        UE_LOG(LogTemp, Error, TEXT("QI(IDBCreateSession) failed: 0x%08X"), Result);
         pDBInit->Uninitialize();
         pDBInit->Release();
+
+		OutCode = FString::Printf(TEXT("FF Microsoft OLE DB : QI(IDBCreateSession) failed. HRESULT: 0x%08X"), Result);
         return false;
     }
 
@@ -111,10 +103,11 @@ bool AOLEDB_Manager::Connect(FString ConnectionString)
     
     if (FAILED(Result))
     {
-        UE_LOG(LogTemp, Error, TEXT("IDBCreateSession::CreateSession failed: 0x%08X"), Result);
         pCreateSession->Release();
         pDBInit->Uninitialize();
         pDBInit->Release();
+
+		OutCode = FString::Printf(TEXT("FF Microsoft OLE DB : IDBCreateSession::CreateSession failed. HRESULT: 0x%08X"), Result);
         return false;
     }
 
@@ -123,8 +116,62 @@ bool AOLEDB_Manager::Connect(FString ConnectionString)
     this->DB_Session = pCreateSession;
     this->DB_Command = pCreateCommand;
 
-    UE_LOG(LogTemp, Display, TEXT("OLE DB connected."));
+	OutCode = FString("FF Microsoft OLE DB : Connection successful.");
     return true;
+}
+
+FString AOLEDB_Manager::CreateConnectionString(FString ServerIp, FString Database, FString UserID, FString Password, FString Provider, int32 Port, bool bEnableEncryption, bool bTrustCertificate)
+{
+    if (ServerIp.IsEmpty() || Database.IsEmpty() || UserID.IsEmpty())
+    {
+        return FString();
+    }
+
+    const FString TempString =
+        "Provider=" + (Provider.IsEmpty() ? "MSOLEDBSQL" : Provider) + ";" +
+        "Data Source=" + ServerIp + "," + (Port == 0 ? FString::FromInt(1433) : FString::FromInt(Port)) + ";" +
+        "Initial Catalog=" + Database + ";" +
+        "User ID=" + UserID + ";" +
+        "Password=" + Password + ";" +
+        "Encrypt=" + (bEnableEncryption ? "Yes" : "No") + ";" +
+        "TrustServerCertificate=" + (bTrustCertificate ? "Yes" : "No") + ";";
+
+    return TempString;
+}
+
+void AOLEDB_Manager::CreateConnection(FDelegate_OLEDB_Connection DelegateConnection, const FString& In_ConStr)
+{
+    if (In_ConStr.IsEmpty())
+    {
+        DelegateConnection.ExecuteIfBound(false, "FF Microsoft ODBC : Connection string shouldn't be empty !");
+        return;
+    }
+
+    AsyncTask(ENamedThreads::AnyNormalThreadNormalTask, [this, DelegateConnection, In_ConStr]()
+        {
+            FString Out_Code;
+            FString CreatedString;
+
+            if (!this->ConnectDatabase(Out_Code, In_ConStr))
+            {
+                this->ConnectionString = In_ConStr;
+
+                AsyncTask(ENamedThreads::GameThread, [DelegateConnection, Out_Code]()
+                    {
+                        DelegateConnection.ExecuteIfBound(false, Out_Code);
+                    }
+                );
+
+                return;
+            }
+
+            AsyncTask(ENamedThreads::GameThread, [DelegateConnection, Out_Code]()
+                {
+                    DelegateConnection.ExecuteIfBound(true, Out_Code);
+                }
+            );
+        }
+    );
 }
 
 void AOLEDB_Manager::Disconnect()

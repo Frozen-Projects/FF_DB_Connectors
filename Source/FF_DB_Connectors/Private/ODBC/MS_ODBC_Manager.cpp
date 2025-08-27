@@ -26,9 +26,9 @@ void AODBC_Manager::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
-bool AODBC_Manager::CreateConnectionString(FString& Out_ConStr, FString TargetServer, FString Username, FString Password, FString ServerInstance)
+bool AODBC_Manager::CreateConnectionString(FString& Out_ConStr, FString ODBC_Source, FString Username, FString Password, FString ServerInstance)
 {
-	if (TargetServer.IsEmpty())
+	if (ODBC_Source.IsEmpty())
 	{
 		Out_ConStr = "FF Microsoft ODBC : Target server shouldn't be empty !";
 		return true;
@@ -46,7 +46,7 @@ bool AODBC_Manager::CreateConnectionString(FString& Out_ConStr, FString TargetSe
 		return false;
 	}
 
-	Out_ConStr = "{SQL Server};SERVER=" + TargetServer + "\\" + ServerInstance + ";DSN=" + TargetServer + ";UID=" + Username + ";PWD=" + Password;
+	Out_ConStr = "{SQL Server};SERVER=" + ODBC_Source + "\\" + ServerInstance + ";DSN=" + ODBC_Source + ";UID=" + Username + ";PWD=" + Password;
 	return true;
 }
 
@@ -97,15 +97,15 @@ void AODBC_Manager::CreateConnection(FDelegate_ODBC_Connection DelegateConnectio
 		return;
 	}
 
-	this->ConnectionString = In_ConStr;
-
-	AsyncTask(ENamedThreads::AnyNormalThreadNormalTask, [this, DelegateConnection]()
+	AsyncTask(ENamedThreads::AnyNormalThreadNormalTask, [this, DelegateConnection, In_ConStr]()
 		{
 			FString Out_Code;
 			FString CreatedString;
 
-			if (!this->ConnectDatabase(Out_Code, this->ConnectionString))
+			if (!this->ConnectDatabase(Out_Code, In_ConStr))
 			{
+				this->ConnectionString = In_ConStr;
+
 				AsyncTask(ENamedThreads::GameThread, [DelegateConnection, Out_Code]()
 					{
 						DelegateConnection.ExecuteIfBound(false, Out_Code);
@@ -216,7 +216,7 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 
 					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code]()
 						{
-							DelegateExecute.ExecuteIfBound(false, Out_Code, nullptr, 0);
+							DelegateExecute.ExecuteIfBound(0, Out_Code, nullptr, 0);
 						}
 					);
 
@@ -229,7 +229,7 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 							UODBC_Result* ResultObject = NewObject<UODBC_Result>();
 							ResultObject->SetQueryResult(Temp_Handler);
 
-							DelegateExecute.ExecuteIfBound(true, Out_Code, ResultObject, Temp_Handler.Affected_Rows);
+							DelegateExecute.ExecuteIfBound(1, Out_Code, ResultObject, Temp_Handler.Affected_Rows);
 						}
 					);
 
@@ -239,7 +239,7 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 
 					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, Temp_Handler]()
 						{
-							DelegateExecute.ExecuteIfBound(true, Out_Code, nullptr, Temp_Handler.Affected_Rows);
+							DelegateExecute.ExecuteIfBound(2, Out_Code, nullptr, Temp_Handler.Affected_Rows);
 						}
 					);
 
@@ -249,7 +249,7 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 
 					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code]()
 						{
-							DelegateExecute.ExecuteIfBound(false, Out_Code, nullptr, 0);
+							DelegateExecute.ExecuteIfBound(0, Out_Code, nullptr, 0);
 						}
 					);
 
