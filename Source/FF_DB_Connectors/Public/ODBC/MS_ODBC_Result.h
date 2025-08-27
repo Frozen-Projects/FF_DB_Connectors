@@ -75,69 +75,62 @@ public:
 	int32 Column_Size = 0;
 };
 
-UDELEGATE(BlueprintAuthorityOnly)
-DECLARE_DYNAMIC_DELEGATE_TwoParams(FDelegate_MS_ODBC_Record, bool, IsSuccessfull, FString, Out_Code);
+USTRUCT()
+struct FF_DB_CONNECTORS_API FMS_ODBC_QueryHandler
+{
+	GENERATED_BODY()
 
-UDELEGATE(BlueprintAuthorityOnly)
-DECLARE_DYNAMIC_DELEGATE_ThreeParams(FDelegate_MS_ODBC_Fetch, bool, IsSuccessfull, FString, Out_Code, const TArray<FString>&, Out_Values);
+private:
+
+	FString GetChunckData(int32 SQL_Column_Index);
+
+public:
+
+	SQLHSTMT SQL_Handle = nullptr;
+
+	FString SentQuery;
+	int64 Affected_Rows = 0;
+	int64 Count_Rows = 0;
+	int64 Count_Columns = 0;
+	TMap<FVector2D, FMS_ODBC_DataValue> Data_Pool;
+
+	bool GetEachMetaData(FMS_ODBC_MetaData& Out_MetaData, int32 ColumnIndex);
+	
+	// 0 = Failed, 1 = Success , 2 = Update Only.
+	int32 Record_Result(FString& Out_Code);
+
+};
 
 UCLASS(BlueprintType)
 class FF_DB_CONNECTORS_API UODBC_Result : public UObject
 {
 	GENERATED_BODY()
 
+private:
+
+	mutable FCriticalSection ResultGuard;
+	FMS_ODBC_QueryHandler QueryHandler;
+
 protected:
 
-	FString SentQuery;
-	SQLHSTMT SQL_Handle_Statement;
-
-	TMap<FVector2D, FMS_ODBC_DataValue> Data_Pool;
-	bool bIsResultRecorded = false;
-
-	int32 Count_Row = 0;
-	int32 Count_Column = 0;
-	int32 Affected_Rows = 0;
-
-	static FString AnsiToFString(const char* AnsiStr);
+	// Called when the game end or when destroyed.
+	virtual void BeginDestroy() override;
 
 public:
 
-	virtual bool SetQueryResult(const SQLHSTMT& In_Handle, const FString& In_Query);
-	virtual bool GetEachMetaData(FMS_ODBC_MetaData& Out_MetaData, int32 ColumnIndex);
-
-	UFUNCTION(BlueprintCallable)
-	virtual bool Result_Record(FString& Out_Code);
-	
-	UFUNCTION(BlueprintCallable)
-	virtual void Result_Record_Async(FDelegate_MS_ODBC_Record DelegateRecord);
-
-	/*
-	* If you use "Record Result" system in anywhere for this result object, you can't use this function whitout executing query again.
-	* You can't use "Record Result" system after this function. Because it will exhaust query result handle. This is ODBC and SQL related limitation.
-	* You can use this function only once per query.
-	*/
-	UFUNCTION(BlueprintCallable)
-	virtual bool Result_Fetch(FString& Out_Code, TArray<FString>& Out_Values, int32 ColumnIndex = 1);
-
-	/*
-	* If you use "Record Result" system in anywhere for this result object, you can't use this function whitout executing query again.
-	* You can't use "Record Result" system after this function. Because it will exhaust query result handle. This is ODBC and SQL related limitation.
-	* You can use this function only once per query.
-	*/
-	UFUNCTION(BlueprintCallable)
-	virtual void Result_Fetch_Async(FDelegate_MS_ODBC_Fetch DelegateFetch, int32 ColumnIndex = 1);
+	virtual bool SetQueryResult(FMS_ODBC_QueryHandler In_Handler);
 
 	UFUNCTION(BlueprintPure)
-	virtual int32 GetColumnNumber();
-
-	/*
-	* You can use this after "Record Result" function.
-	*/
-	UFUNCTION(BlueprintPure)
-	virtual int32 GetRowNumber();
+	virtual int64 GetColumnNumber();
 
 	UFUNCTION(BlueprintPure)
-	virtual int32 GetAffectedRows();
+	virtual int64 GetRowNumber();
+
+	UFUNCTION(BlueprintPure)
+	virtual int64 GetAffectedRows();
+
+	UFUNCTION(BlueprintPure)
+	virtual FString GetQueryString();
 
 	UFUNCTION(BlueprintCallable)
 	virtual bool GetRow(FString& Out_Code, TArray<FMS_ODBC_DataValue>& Out_Values, int32 Index_Row);

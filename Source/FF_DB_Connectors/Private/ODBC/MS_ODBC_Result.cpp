@@ -1,58 +1,16 @@
-#include "ODBC/MS_ODBC_Result.h"
+﻿#include "ODBC/MS_ODBC_Result.h"
 
-FString UODBC_Result::AnsiToFString(const char* AnsiStr)
+bool FMS_ODBC_QueryHandler::GetEachMetaData(FMS_ODBC_MetaData& Out_MetaData, int32 ColumnIndex)
 {
-    if (!AnsiStr)
-    {
-        return FString();
-    }
-
-    // Get required buffer size for conversion
-    int32 RequiredSize = MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, AnsiStr, -1, nullptr, 0);
-
-    if (RequiredSize <= 0)
-    {
-        return FString();
-    };
-
-    // Allocate buffer
-    TArray<WCHAR> WideBuffer;
-    WideBuffer.SetNumUninitialized(RequiredSize);
-
-    MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, AnsiStr, -1, WideBuffer.GetData(), RequiredSize);
-
-    return FString(WideBuffer.GetData());
-}
-
-bool UODBC_Result::SetQueryResult(const SQLHSTMT& In_Handle, const FString& In_Query)
-{
-    if (!In_Handle)
+    if (!this->SQL_Handle)
     {
         return false;
     }
 
-    SQLLEN AffectedRows;
-    SQLRowCount(In_Handle, &AffectedRows);
+    SQLSMALLINT Temp_ColumnNumber;
+    SQLNumResultCols(SQL_Handle, &Temp_ColumnNumber);
 
-    SQLSMALLINT ColumnNumber;
-    SQLNumResultCols(In_Handle, &ColumnNumber);
-
-    this->Affected_Rows = AffectedRows;
-    this->Count_Column = ColumnNumber;
-    this->SQL_Handle_Statement = In_Handle;
-    this->SentQuery = In_Query;
-
-    return true;
-}
-
-bool UODBC_Result::GetEachMetaData(FMS_ODBC_MetaData& Out_MetaData, int32 ColumnIndex)
-{
-    if (!this->SQL_Handle_Statement)
-    {
-        return false;
-    }
-
-    if (this->Count_Column == 0)
+    if (Temp_ColumnNumber == 0)
     {
         return false;
     }
@@ -62,18 +20,15 @@ bool UODBC_Result::GetEachMetaData(FMS_ODBC_MetaData& Out_MetaData, int32 Column
     SQLSMALLINT NameLen, DataType, DecimalDigits, Nullable;
     SQLULEN Column_Size;
 
-    SQLRETURN RetCode = SQLDescribeColA(this->SQL_Handle_Statement, ColumnIndex, Column_Name, Column_Name_Size, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
+    SQLRETURN RetCode = SQLDescribeColA(this->SQL_Handle, ColumnIndex, Column_Name, Column_Name_Size, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
 
     if (!SQL_SUCCEEDED(RetCode))
     {
         return false;
     }
 
-    FString Column_Name_String = UTF8_TO_TCHAR((const char*)Column_Name);
-    Column_Name_String.TrimEndInline();
-
     FMS_ODBC_MetaData EachMetaData;
-    EachMetaData.Column_Name = Column_Name_String;
+    EachMetaData.Column_Name = UTF8_TO_TCHAR((const char*)Column_Name);
     EachMetaData.NameLenght = NameLen;
     EachMetaData.DataType = DataType;
     EachMetaData.DecimalDigits = DecimalDigits;
@@ -85,233 +40,282 @@ bool UODBC_Result::GetEachMetaData(FMS_ODBC_MetaData& Out_MetaData, int32 Column
     return true;
 }
 
-// BLUEPRINT EXPOSED
-
-bool UODBC_Result::Result_Record(FString& Out_Code)
+FString FMS_ODBC_QueryHandler::GetChunckData(int32 SQL_Column_Index)
 {
-    if (this->bIsResultRecorded)
+	FString Accumulated;
+
+    constexpr SQLLEN WCHUNK = 4096;                         // wchar_t units requested per call
+    constexpr SQLLEN BYTES = WCHUNK * sizeof(SQLWCHAR);     // buffer size in bytes
+    SQLWCHAR Buffer[WCHUNK];                                // stack buffer per chunk
+
+    SQLLEN Indicator = 0;
+
+    while (true)
     {
-        Out_Code = "FF Microsoft ODBC : Result already recorded.";
-        return false;
+        SQLRETURN Ret = SQLGetData(this->SQL_Handle, static_cast<SQLUSMALLINT>(SQL_Column_Index), SQL_C_WCHAR, Buffer, BYTES, &Indicator);
+
+        if (Indicator == SQL_NULL_DATA)
+        {
+            // Column is NULL → leave Accumulated empty (or set a flag if you need)
+            Accumulated.Reset();
+            break;
+        }
+
+        if (!SQL_SUCCEEDED(Ret) && Ret != SQL_SUCCESS_WITH_INFO)
+        {
+            return FString();
+        }
+
+        // How many *bytes* are valid this call (exclude driver's trailing L'\0')
+        size_t BytesThisCall =
+            (Ret == SQL_SUCCESS_WITH_INFO) ? static_cast<size_t>(BYTES - sizeof(SQLWCHAR))
+            : (Indicator == SQL_NO_TOTAL) ? static_cast<size_t>(BYTES - sizeof(SQLWCHAR))
+            : (Indicator >= 0) ? static_cast<size_t>(FMath::Min<SQLLEN>(Indicator, BYTES - sizeof(SQLWCHAR)))
+            : 0;
+
+        const size_t WCharsThisCall = BytesThisCall / sizeof(SQLWCHAR);
+
+        if (WCharsThisCall > 0)
+        {
+            // Append exactly the produced chars; FString is UTF-16 on Windows.
+            Accumulated.AppendChars(reinterpret_cast<const TCHAR*>(Buffer), static_cast<int32>(WCharsThisCall));
+        }
+
+        // If not truncated, we’re done (no more chunks).
+        if (Ret != SQL_SUCCESS_WITH_INFO)
+        {
+            break;
+        }
     }
 
-    if (!this->SQL_Handle_Statement)
+	return Accumulated;
+}
+
+int32 FMS_ODBC_QueryHandler::Record_Result(FString& Out_Code)
+{
+    if (!this->SQL_Handle)
     {
         Out_Code = "FF Microsoft ODBC : Statement handle is not valid !";
-        return false;
+        return 0;
     }
 
-    if (this->Count_Column == 0)
+    SQLLEN Temp_AffectedRows;
+    SQLRowCount(this->SQL_Handle, &Temp_AffectedRows);
+
+    SQLSMALLINT Temp_ColumnNumber;
+    SQLNumResultCols(this->SQL_Handle, &Temp_ColumnNumber);
+
+    if (Temp_AffectedRows == 0 || Temp_ColumnNumber == 0)
     {
+		this->Affected_Rows = Temp_AffectedRows;
         Out_Code = "FF Microsoft ODBC : This query doesn't have result. It is for update only !";
-        return false;
+        return 2;
     }
 
     try
     {
-        TMap<FVector2D, FMS_ODBC_DataValue> Temp_Data_Pool;
         int32 Index_Row = 0;
-        bool bIsMetaDataCollected = false;
         TArray<FMS_ODBC_MetaData> Array_MetaData;
+        TMap<FVector2D, FMS_ODBC_DataValue> Temp_Data_Pool;
 
-        while (SQLFetch(this->SQL_Handle_Statement) == SQL_SUCCESS)
+        while (SQLFetch(this->SQL_Handle) == SQL_SUCCESS)
         {
-            for (int32 Index_Column_Raw = 0; Index_Column_Raw < this->Count_Column; Index_Column_Raw++)
+            for (int32 Column_Index = 0; Column_Index < Temp_ColumnNumber; Column_Index++)
             {
-                const FVector2D Position = FVector2D(Index_Column_Raw, Index_Row);
-                
-				// ODBC column index starts from 1.
-                const int32 Index_Column = Index_Column_Raw + 1;
+                const int32 SQL_Column_Index = Column_Index + 1;
 
-                if (!bIsMetaDataCollected)
+                if (Array_MetaData.IsEmpty())
                 {
                     FMS_ODBC_MetaData EachMetaData;
-                    if (this->GetEachMetaData(EachMetaData, Index_Column))
+                    if (this->GetEachMetaData(EachMetaData, SQL_Column_Index))
                     {
                         Array_MetaData.Add(EachMetaData);
                     }
                 }
 
-				const FString Column_Name = Array_MetaData[Index_Column_Raw].Column_Name;
-				const int32 DataType = Array_MetaData[Index_Column_Raw].DataType;
-
-                SQLLEN PreviewLenght;
-                SQLCHAR PreviewData[SQL_MAX_TEXT_LENGHT];
-                SQLRETURN RetCode = SQLGetData(this->SQL_Handle_Statement, Index_Column, SQL_CHAR, PreviewData, SQL_MAX_TEXT_LENGHT, &PreviewLenght);
-
-                if (!SQL_SUCCEEDED(RetCode))
-                {
-                    Out_Code = "FF Microsoft ODBC : There was a problem while getting SQL Data : " + Position.ToString();
-                    return false;
-                }
-
-				std::stringstream Stream;
-                Stream.write((char*)&PreviewData, PreviewLenght);
-				const std::string RawString = Stream.str();
-
-                const FString PreviewString = UODBC_Result::AnsiToFString(RawString.c_str());
+                const FVector2D Position = FVector2D(Column_Index, Index_Row);
 
                 FMS_ODBC_DataValue EachData;
-                EachData.ColumnName = Column_Name;
-                EachData.DataType = DataType;
-                EachData.Preview = PreviewString;
+
+                if (Array_MetaData.IsValidIndex(Column_Index))
+                {
+                    EachData.ColumnName = Array_MetaData[Column_Index].Column_Name;
+                    EachData.DataType = Array_MetaData[Column_Index].DataType;
+                }
+
+				FString Preview = GetChunckData(SQL_Column_Index);
+                EachData.Preview = MoveTemp(Preview);
+
+                switch (EachData.DataType)
+                {
+                    // NVARCHAR & DATE & TIME
+                    case -9:
+                    {
+						EachData.DataTypeName = "NVARCHAR & DATE & TIME";
+                        EachData.String = EachData.Preview;
+                        break;
+                    }
+
+                    // INT64 & BIGINT
+                    case -5:
+                    {
+						EachData.DataTypeName = "INT64 & BIGINT";
+                        EachData.Integer64 = FCString::Atoi64(*EachData.Preview);
+                        break;
+                    }
+
+                    // TIMESTAMP
+                    case -2:
+                    {
+						EachData.DataTypeName = "TIMESTAMP";
+                        std::string RawString = TCHAR_TO_UTF8(*EachData.Preview);
+                        unsigned int TimeStampInt = std::stoul(RawString, nullptr, 16);
+
+                        EachData.Integer64 = TimeStampInt;
+                        EachData.Preview += " - " + FString::FromInt(TimeStampInt);
+                        break;
+                    }
+
+                    // TEXT
+                    case -1:
+                    {
+						EachData.DataTypeName = "TEXT";
+                        EachData.String = EachData.Preview;
+                        break;
+                    }
+
+                    // INT32
+                    case 4:
+                    {
+						EachData.DataTypeName = "INT32";
+                        EachData.Integer32 = FCString::Atoi(*EachData.Preview);
+                        break;
+                    }
+
+                    // FLOAT & DOUBLE
+                    case 6:
+                    {
+						EachData.DataTypeName = "FLOAT & DOUBLE";
+                        EachData.Double = FCString::Atod(*EachData.Preview);
+                        break;
+                    }
+
+                    // DATETIME
+                    case 93:
+                    {
+						EachData.DataTypeName = "DATETIME";
+                        TArray<FString> Array_Sections;
+                        EachData.Preview.ParseIntoArray(Array_Sections, TEXT(" "));
+
+                        FString Date = Array_Sections[0];
+                        FString Time = Array_Sections[1];
+
+                        TArray<FString> Array_Sections_Date;
+                        Date.ParseIntoArray(Array_Sections_Date, TEXT("-"));
+                        int32 Year = FCString::Atoi(*Array_Sections_Date[0]);
+                        int32 Month = FCString::Atoi(*Array_Sections_Date[1]);
+                        int32 Day = FCString::Atoi(*Array_Sections_Date[2]);
+
+                        TArray<FString> Array_Sections_Time;
+                        Time.ParseIntoArray(Array_Sections_Time, TEXT("."));
+                        int32 Milliseconds = FCString::Atoi(*Array_Sections_Time[1]);
+                        FString Clock = Array_Sections_Time[0];
+
+                        TArray<FString> Array_Sections_Clock;
+                        Clock.ParseIntoArray(Array_Sections_Clock, TEXT(":"));
+                        int32 Hours = FCString::Atoi(*Array_Sections_Clock[0]);
+                        int32 Minutes = FCString::Atoi(*Array_Sections_Clock[1]);
+                        int32 Seconds = FCString::Atoi(*Array_Sections_Clock[2]);
+
+                        EachData.DateTime = FDateTime(Year, Month, Day, Hours, Minutes, Seconds, Milliseconds);
+                        break;
+                    }
+
+                    default:
+                    {
+                        EachData.Note = "Currently there is no parser for this data type. Please convert it to another known type in your query !";
+                        break;
+                    }
+                }
 
                 Temp_Data_Pool.Add(Position, EachData);
             }
 
-            bIsMetaDataCollected = true;
             Index_Row += 1;
         }
 
         this->Data_Pool = Temp_Data_Pool;
-        this->Count_Row = Index_Row;
-        this->bIsResultRecorded = true;
+        this->Count_Rows = Index_Row;
+		this->Affected_Rows = Temp_AffectedRows;
+		this->Count_Columns = Temp_ColumnNumber;
 
         Out_Code = "FF Microsoft ODBC : Result successfuly recorded !";
-        return true;
+        return 1;
     }
 
     catch (const std::exception& Exception)
     {
         Out_Code = Exception.what();
-        return false;
+        return 0;
     }
 }
 
-void UODBC_Result::Result_Record_Async(FDelegate_MS_ODBC_Record DelegateRecord)
+#pragma region UODBC_Result
+
+void UODBC_Result::BeginDestroy()
 {
-    AsyncTask(ENamedThreads::AnyNormalThreadNormalTask, [this, DelegateRecord]()
-        {
-            FString Out_Code;
+    if (this->QueryHandler.SQL_Handle)
+    {
+        SQLFreeHandle(SQL_HANDLE_STMT, this->QueryHandler.SQL_Handle);
+        this->QueryHandler.SQL_Handle = NULL;
+	}
 
-            if (this->Result_Record(Out_Code))
-            {
-                AsyncTask(ENamedThreads::GameThread, [DelegateRecord, Out_Code]()
-                    {
-                        DelegateRecord.ExecuteIfBound(true, Out_Code);
-                    }
-                );
-
-                return;
-            }
-
-            else
-            {
-                AsyncTask(ENamedThreads::GameThread, [DelegateRecord, Out_Code]()
-                    {
-                        DelegateRecord.ExecuteIfBound(false, Out_Code);
-                    }
-                );
-
-                return;
-            }
-        }
-    );
+    Super::BeginDestroy();
 }
 
-bool UODBC_Result::Result_Fetch(FString& Out_Code, TArray<FString>& Out_Values, int32 ColumnIndex)
+bool UODBC_Result::SetQueryResult(FMS_ODBC_QueryHandler In_Handler)
 {
-    if (ColumnIndex < 1)
+    if (!In_Handler.SQL_Handle)
     {
-        Out_Code = "FF Microsoft ODBC : Column index starts from 1 !";
         return false;
     }
 
-    if (!this->SQL_Handle_Statement)
-    {
-        Out_Code = "FF Microsoft ODBC : Statement handle is not valid !";
-        return false;
-    }
+	this->ResultGuard.Lock();
+    this->QueryHandler = In_Handler;
+	this->ResultGuard.Unlock();
 
-    try
-    {
-        TArray<FString> Array_Temp;
-        int32 Index_Row = 0;
-
-        while (SQLFetch(this->SQL_Handle_Statement) == SQL_SUCCESS)
-        {
-            SQLLEN ReceivedLenght;
-            SQLCHAR TempData[SQL_MAX_TEXT_LENGHT];
-            SQLGetData(this->SQL_Handle_Statement, ColumnIndex, SQL_CHAR, TempData, SQL_MAX_TEXT_LENGHT, &ReceivedLenght);
-
-            FString EachData;
-            EachData.AppendChars((const char*)TempData, ReceivedLenght);
-            EachData.TrimEndInline();
-            Array_Temp.Add(EachData);
-
-            Index_Row += 1;
-        }
-
-        this->Count_Row = Index_Row;
-        Out_Values = Array_Temp;
-        Out_Code = "FF Microsoft ODBC : Result successfully fetched !";
-
-        return true;
-    }
-
-    catch (const std::exception& Exception)
-    {
-        Out_Code = Exception.what();
-        return false;
-    }
+    return true;
 }
 
-void UODBC_Result::Result_Fetch_Async(FDelegate_MS_ODBC_Fetch DelegateFetch, int32 ColumnIndex)
+int64 UODBC_Result::GetColumnNumber()
 {
-    AsyncTask(ENamedThreads::AnyNormalThreadNormalTask, [this, DelegateFetch, ColumnIndex]()
-        {
-            FString Out_Code;
-            TArray<FString> Out_Values;
-
-            if (this->Result_Fetch(Out_Code, Out_Values, ColumnIndex))
-            {
-                AsyncTask(ENamedThreads::GameThread, [DelegateFetch, Out_Code, Out_Values]()
-                    {
-                        DelegateFetch.ExecuteIfBound(true, Out_Code, Out_Values);
-                    }
-                );
-
-                return;
-            }
-
-            else
-            {
-                AsyncTask(ENamedThreads::GameThread, [DelegateFetch, Out_Code]()
-                    {
-                        DelegateFetch.ExecuteIfBound(false, Out_Code, TArray<FString>());
-                    }
-                );
-
-                return;
-            }
-        }
-    );
+    return this->QueryHandler.Count_Columns;
 }
 
-int32 UODBC_Result::GetColumnNumber()
+int64 UODBC_Result::GetRowNumber()
 {
-    return this->Count_Column;
+    return this->QueryHandler.Count_Rows;
 }
 
-int32 UODBC_Result::GetRowNumber()
+int64 UODBC_Result::GetAffectedRows()
 {
-    return this->Count_Row;
+    return this->QueryHandler.Affected_Rows;
 }
 
-int32 UODBC_Result::GetAffectedRows()
+FString UODBC_Result::GetQueryString()
 {
-    return this->Affected_Rows;
+    return this->QueryHandler.SentQuery;
 }
 
 bool UODBC_Result::GetRow(FString& Out_Code, TArray<FMS_ODBC_DataValue>& Out_Values, int32 Index_Row)
 {
-    if (this->Data_Pool.IsEmpty())
+    if (this->QueryHandler.Data_Pool.IsEmpty())
     {
         Out_Code = "FF Microsoft ODBC : Data pool is empty !";
         return false;
     }
 
-    if (Index_Row < 0 || Index_Row >= this->Count_Row)
+    if (Index_Row < 0 || Index_Row >= this->QueryHandler.Count_Rows)
     {
         Out_Code = "FF Microsoft ODBC : Given row index is out of data pool's range !";
         return false;
@@ -319,17 +323,17 @@ bool UODBC_Result::GetRow(FString& Out_Code, TArray<FMS_ODBC_DataValue>& Out_Val
 
     TArray<FMS_ODBC_DataValue> Temp_Array;
 
-    for (int32 Index_Column = 0; Index_Column < this->Count_Column; Index_Column++)
+    for (int32 Index_Column = 0; Index_Column < this->QueryHandler.Count_Columns; Index_Column++)
     {
         const FVector2D Position = FVector2D(Index_Column, Index_Row);
 
-        if (!this->Data_Pool.Contains(Position))
+        if (!this->QueryHandler.Data_Pool.Contains(Position))
         {
             Out_Code = "FF Microsoft ODBC : Target position couldn't be found ! : " + Position.ToString();
             return false;
         }
 
-        FMS_ODBC_DataValue* EachData = this->Data_Pool.Find(Position);
+        FMS_ODBC_DataValue* EachData = this->QueryHandler.Data_Pool.Find(Position);
 
         if (!EachData)
         {
@@ -347,13 +351,13 @@ bool UODBC_Result::GetRow(FString& Out_Code, TArray<FMS_ODBC_DataValue>& Out_Val
 
 bool UODBC_Result::GetColumnFromIndex(FString& Out_Code, TArray<FMS_ODBC_DataValue>& Out_Values, int32 Index_Column)
 {
-    if (this->Data_Pool.IsEmpty())
+    if (this->QueryHandler.Data_Pool.IsEmpty())
     {
         Out_Code = "FF Microsoft ODBC : Data pool is empty !";
         return false;
     }
 
-    if (Index_Column < 0 || Index_Column >= this->Count_Column)
+    if (Index_Column < 0 || Index_Column >= this->QueryHandler.Count_Columns)
     {
         Out_Code = "FF Microsoft ODBC : Given column index is out of data pool's range !";
         return false;
@@ -361,17 +365,17 @@ bool UODBC_Result::GetColumnFromIndex(FString& Out_Code, TArray<FMS_ODBC_DataVal
 
     TArray<FMS_ODBC_DataValue> Temp_Array;
 
-    for (int32 Index_Row = 0; Index_Row < this->Count_Row; Index_Row++)
+    for (int32 Index_Row = 0; Index_Row < this->QueryHandler.Count_Rows; Index_Row++)
     {
         const FVector2D Position = FVector2D(Index_Column, Index_Row);
 
-        if (!this->Data_Pool.Contains(Position))
+        if (!this->QueryHandler.Data_Pool.Contains(Position))
         {
             Out_Code = "FF Microsoft ODBC : Target position couldn't be found ! : " + Position.ToString();
             return false;
         }
 
-        FMS_ODBC_DataValue* EachData = this->Data_Pool.Find(Position);
+        FMS_ODBC_DataValue* EachData = this->QueryHandler.Data_Pool.Find(Position);
 
         if (!EachData)
         {
@@ -389,20 +393,20 @@ bool UODBC_Result::GetColumnFromIndex(FString& Out_Code, TArray<FMS_ODBC_DataVal
 
 bool UODBC_Result::GetColumnFromName(FString& Out_Code, TArray<FMS_ODBC_DataValue>& Out_Values, FString ColumName)
 {
-    if (this->Count_Column == 0)
+    if (this->QueryHandler.Count_Columns == 0)
     {
         return false;
     }
 
     int32 TargetIndex = 0;
-    for (int32 Index_Column_Raw = 0; Index_Column_Raw < this->Count_Column; Index_Column_Raw++)
+    for (int32 Index_Column_Raw = 0; Index_Column_Raw < this->QueryHandler.Count_Columns; Index_Column_Raw++)
     {
         const int32 Index_Column = Index_Column_Raw + 1;
         SQLCHAR Column_Name[256];
         SQLSMALLINT NameLen, DataType, DecimalDigits, Nullable;
         SQLULEN Column_Size;
 
-        SQLRETURN RetCode = SQLDescribeColA(this->SQL_Handle_Statement, Index_Column, Column_Name, 256, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
+        SQLRETURN RetCode = SQLDescribeColA(this->QueryHandler.SQL_Handle, Index_Column, Column_Name, 256, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
 
         if (!SQL_SUCCEEDED(RetCode))
         {
@@ -425,25 +429,25 @@ bool UODBC_Result::GetColumnFromName(FString& Out_Code, TArray<FMS_ODBC_DataValu
 
 bool UODBC_Result::GetSingleData(FString& Out_Code, FMS_ODBC_DataValue& Out_Value, FVector2D Position)
 {
-    if (this->Data_Pool.IsEmpty())
+    if (this->QueryHandler.Data_Pool.IsEmpty())
     {
         Out_Code = "FF Microsoft ODBC : Data pool is empty !";
         return false;
     }
 
-    if (Position.X < 0 || Position.Y < 0 || Position.X >= this->Count_Column || Position.Y >= this->Count_Row)
+    if (Position.X < 0 || Position.Y < 0 || Position.X >= this->QueryHandler.Count_Columns || Position.Y >= this->QueryHandler.Count_Rows)
     {
         Out_Code = "FF Microsoft ODBC : Given position is out of data pool's range !";
         return false;
     }
 
-    if (!this->Data_Pool.Contains(Position))
+    if (!this->QueryHandler.Data_Pool.Contains(Position))
     {
         Out_Code = "FF Microsoft ODBC : Target position couldn't be found ! : " + Position.ToString();
         return false;
     }
 
-    FMS_ODBC_DataValue* DataValue = this->Data_Pool.Find(Position);
+    FMS_ODBC_DataValue* DataValue = this->QueryHandler.Data_Pool.Find(Position);
 
     if (!DataValue)
     {
@@ -457,14 +461,14 @@ bool UODBC_Result::GetSingleData(FString& Out_Code, FMS_ODBC_DataValue& Out_Valu
 
 bool UODBC_Result::GetMetaData(FString& Out_Code, TArray<FMS_ODBC_MetaData>& Out_MetaData)
 {
-    if (!this->SQL_Handle_Statement)
+    if (!this->QueryHandler.SQL_Handle)
     {
         Out_Code = "FF Microsoft ODBC : Statement handle is not valid !";
         return false;
     }
 
     SQLSMALLINT Temp_Count_Column = 0;
-    SQLRETURN RetCode = SQLNumResultCols(this->SQL_Handle_Statement, &Temp_Count_Column);
+    SQLRETURN RetCode = SQLNumResultCols(this->QueryHandler.SQL_Handle, &Temp_Count_Column);
 
     if (Temp_Count_Column == 0)
     {
@@ -477,7 +481,7 @@ bool UODBC_Result::GetMetaData(FString& Out_Code, TArray<FMS_ODBC_MetaData>& Out
     for (int32 Index_Column_Raw = 0; Index_Column_Raw < Temp_Count_Column; Index_Column_Raw++)
     {
         FMS_ODBC_MetaData EachMetaData;
-        if (this->GetEachMetaData(EachMetaData, Index_Column_Raw + 1))
+        if (this->QueryHandler.GetEachMetaData(EachMetaData, Index_Column_Raw + 1))
         {
             Array_MetaData.Add(EachMetaData);
         }
@@ -487,3 +491,5 @@ bool UODBC_Result::GetMetaData(FString& Out_Code, TArray<FMS_ODBC_MetaData>& Out
     Out_Code = "FF Microsoft ODBC : All metadata got successfully !";
     return true;
 }
+
+#pragma endregion

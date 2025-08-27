@@ -16,6 +16,7 @@ void AODBC_Manager::BeginPlay()
 // Called when the game ends or when destroyed.
 void AODBC_Manager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	this->Disconnect();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -123,107 +124,142 @@ void AODBC_Manager::CreateConnection(FDelegate_ODBC_Connection DelegateConnectio
 	);
 }
 
-FString AODBC_Manager::GetConnectionString()
+void AODBC_Manager::Disconnect()
 {
-	return this->ConnectionString;
+	if (this->SQL_Handle_Connection)
+	{
+		SQLDisconnect(this->SQL_Handle_Connection);
+		SQLFreeHandle(SQL_HANDLE_DBC, this->SQL_Handle_Connection);
+		this->SQL_Handle_Connection = NULL;
+	}
+
+	if (this->SQL_Handle_Environment)
+	{
+		SQLFreeHandle(SQL_HANDLE_ENV, this->SQL_Handle_Environment);
+		this->SQL_Handle_Environment = NULL;
+	}
 }
 
-bool AODBC_Manager::SendQuery(FString& Out_Code, UODBC_Result*& Out_Result, const FString& SQL_Query, bool bRecordResults)
+int32 AODBC_Manager::ExecuteQuery(FMS_ODBC_QueryHandler& Out_Handler, FString& Out_Code, const FString& SQL_Query)
 {
 	if (SQL_Query.IsEmpty())
 	{
-		return false;
+		return 0;
 	}
 
 	if (!this->SQL_Handle_Connection)
 	{
 		Out_Code = "FF Microsoft ODBC : Connection handle is not valid !";
-		return false;
+		return 0;
 	}
 
-	SQLRETURN RetCode;
-
-	SQLHSTMT Temp_Handle;
-	RetCode = SQLAllocStmt(this->SQL_Handle_Connection, &Temp_Handle);
+	SQLHSTMT SQL_Handle;
+	SQLRETURN RetCode = SQLAllocStmt(this->SQL_Handle_Connection, &SQL_Handle);
 
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF Microsoft ODBC : There was a problem while allocating statement handle : " + FString::FromInt(RetCode);
-		return false;
+		return 0;
 	}
 
 	SQLWCHAR* SQLWCHARStatementString = (SQLWCHAR*)(*SQL_Query);
-	RetCode = SQLPrepare(Temp_Handle, SQLWCHARStatementString, SQL_NTS);
+	RetCode = SQLPrepare(SQL_Handle, SQLWCHARStatementString, SQL_NTS);
 
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF Microsoft ODBC : There was a problem while preparing statement : " + FString::FromInt(RetCode);
-		return false;
+		return 0;
 	}
 
-	RetCode = SQLExecute(Temp_Handle);
+	RetCode = SQLExecute(SQL_Handle);
 
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF Microsoft ODBC : There was a problem while executing query : " + FString::FromInt(RetCode);
-		return false;
+		return 0;
 	}
 
-	UODBC_Result* ResultObject = NewObject<UODBC_Result>();
+	FMS_ODBC_QueryHandler Temp_Handler;
+	Temp_Handler.SQL_Handle = SQL_Handle;
+	Temp_Handler.SentQuery = SQL_Query;
+	const int32 RecordResult = Temp_Handler.Record_Result(Out_Code);
 
-	if (!ResultObject->SetQueryResult(Temp_Handle, SQL_Query))
+	switch (RecordResult)
 	{
-		Out_Code = "FF Microsoft ODBC : Query executed successfully but return handle is invalid !";
-		return false;
+		case 0: 
+			return 0;
+		
+		case 1: 
+			Out_Handler = Temp_Handler;
+			return 1;
+		
+		case 2: 
+			Out_Handler = Temp_Handler;
+			return 2;
+
+		default:
+			return 0;
 	}
-
-	if (bRecordResults)
-	{
-		FString RecordResultCode;
-		if (!ResultObject->Result_Record(RecordResultCode))
-		{
-			Out_Code = "FF Microsoft ODBC : Query executed successfully but there was a problem while recording result to the pool : " + UKismetStringLibrary::ParseIntoArray(RecordResultCode, " : ")[1];
-			return false;
-		}
-	}
-
-	Out_Result = ResultObject;
-	Out_Code = "FF Microsoft ODBC : Query executed and result object created successfully !";
-
-	delete(SQLWCHARStatementString);
-
-	return true;
 }
 
-void AODBC_Manager::SendQueryAsync(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query, bool bRecordResults)
+void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query)
 {
-	UODBC_Result* Out_Result = NewObject<UODBC_Result>();
-
-	AsyncTask(ENamedThreads::AnyNormalThreadNormalTask, [this, DelegateExecute, &Out_Result, SQL_Query, bRecordResults]()
+	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, DelegateExecute, SQL_Query]()
 		{
 			FString Out_Code;
+			FMS_ODBC_QueryHandler Temp_Handler;
+			const int32 ExecuteResult = this->ExecuteQuery(Temp_Handler, Out_Code, SQL_Query);
 
-			if (this->SendQuery(Out_Code, Out_Result, SQL_Query, bRecordResults))
+			switch (ExecuteResult)
 			{
-				AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, Out_Result]()
-					{
-						DelegateExecute.ExecuteIfBound(true, Out_Code, Out_Result);
-					}
-				);
+				case 0:
 
-				return;
-			}
+					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code]()
+						{
+							DelegateExecute.ExecuteIfBound(false, Out_Code, nullptr, 0);
+						}
+					);
 
-			else
-			{
-				AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code]()
-					{
-						DelegateExecute.ExecuteIfBound(false, Out_Code, nullptr);
-					}
-				);
+					return;
 
-				return;
+				case 1:
+				
+					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, Temp_Handler]()
+						{
+							UODBC_Result* ResultObject = NewObject<UODBC_Result>();
+							ResultObject->SetQueryResult(Temp_Handler);
+
+							DelegateExecute.ExecuteIfBound(true, Out_Code, ResultObject, Temp_Handler.Affected_Rows);
+						}
+					);
+
+					return;
+
+				case 2:
+
+					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, Temp_Handler]()
+						{
+							DelegateExecute.ExecuteIfBound(true, Out_Code, nullptr, Temp_Handler.Affected_Rows);
+						}
+					);
+
+					return;
+
+				default:
+
+					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code]()
+						{
+							DelegateExecute.ExecuteIfBound(false, Out_Code, nullptr, 0);
+						}
+					);
+
+					return;
 			}
 		}
 	);
+}
+
+FString AODBC_Manager::GetConnectionString()
+{
+	return this->ConnectionString;
 }

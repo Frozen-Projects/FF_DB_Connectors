@@ -14,7 +14,7 @@ UDELEGATE(BlueprintAuthorityOnly)
 DECLARE_DYNAMIC_DELEGATE_TwoParams(FDelegate_ODBC_Connection, bool, IsSuccessfull, FString, Out_Code);
 
 UDELEGATE(BlueprintAuthorityOnly)
-DECLARE_DYNAMIC_DELEGATE_ThreeParams(FDelegate_ODBC_Execute, bool, IsSuccessfull, FString, Out_Code, UODBC_Result*, Out_Result);
+DECLARE_DYNAMIC_DELEGATE_FourParams(FDelegate_ODBC_Execute, bool, IsSuccessfull, FString, Out_Code, UODBC_Result*, Out_Result, int64, Out_Affected);
 
 UCLASS()
 class FF_DB_CONNECTORS_API AODBC_Manager : public AActor
@@ -42,6 +42,9 @@ public:
 	// Sets default values for this actor's properties.
 	AODBC_Manager();
 
+	// Call this in FRunnableThread::Run() to execute a query. If there is a result, go to game thread and create a UODBC_Result object.
+	virtual int32 ExecuteQuery(FMS_ODBC_QueryHandler& Out_Handler, FString& Out_Code, const FString& SQL_Query);
+
 	// Called every frame.
 	virtual void Tick(float DeltaTime) override;
 
@@ -52,10 +55,10 @@ public:
 	virtual void CreateConnection(FDelegate_ODBC_Connection DelegateConnection, const FString& ConnectionString);
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
-	virtual bool SendQuery(FString& Out_Code, UODBC_Result*& Out_Result, const FString& SQL_Query, bool bRecordResults);
+	virtual void Disconnect();
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
-	virtual void SendQueryAsync(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query, bool bRecordResults);
+	virtual void ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query);
 
 	UFUNCTION(BlueprintPure, Category = "Frozen Forest|Database Connectors|ODBC")
 	virtual FString GetConnectionString();

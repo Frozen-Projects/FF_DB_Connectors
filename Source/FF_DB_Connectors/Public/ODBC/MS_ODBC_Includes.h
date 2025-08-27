@@ -1,7 +1,5 @@
 #pragma once
 
-#define SQL_MAX_TEXT_LENGHT 65535
-
 // UE Includes.
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetStringLibrary.h"
