@@ -13,7 +13,7 @@ UDELEGATE(BlueprintAuthorityOnly)
 DECLARE_DYNAMIC_DELEGATE_TwoParams(FDelegate_OLEDB_Connection, bool, IsSuccessfull, FString, Out_Code);
 
 UDELEGATE(BlueprintAuthorityOnly)
-DECLARE_DYNAMIC_DELEGATE_FourParams(FDelegate_OLEDB_Execute, bool, IsSuccessfull, FString, Out_Code, UOLEDB_Result*, Out_Result, int64, Out_Affected);
+DECLARE_DYNAMIC_DELEGATE_FourParams(FDelegate_OLEDB_Execute, int32, IsSuccessfull, FString, Out_Code, UOLEDB_Result*, Out_Result, int64, Out_Affected);
 
 UCLASS()
 class FF_DB_CONNECTORS_API AOLEDB_Manager : public AActor
@@ -28,9 +28,7 @@ private:
 	bool bCOMInitialized = false;
 	FString ConnectionString;
 
-	virtual bool InitializeCOM();
 	virtual bool ConnectDatabase(FString& OutCode, const FString& ConnectionString);
-	virtual bool SendQuery(void*& RowSetBuffer, FString Query);
 
 protected:
 
@@ -58,12 +56,15 @@ public:
 	virtual void CreateConnection(FDelegate_OLEDB_Connection DelegateConnection, const FString& In_ConStr);
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
-	virtual bool ExecuteOnly(FString Query);
-
-	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
-	virtual bool ExecuteAndGetResult(UOLEDB_Result*& OutResult, FString Query);
-
-	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
 	virtual void Disconnect();
+
+	// Call this in FRunnableThread::Run() to execute a query. If there is a result, go to game thread and create a UOLEDB_Result object.
+	virtual int32 ExecuteQuery(void*& RowSetBuffer, int64& AffectedRows, FString& Out_Code, const FString& Query);
+
+	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|OLEDB")
+	virtual void ExecuteQueryBp(FDelegate_OLEDB_Execute DelegateExecute, const FString& Query);
+
+	UFUNCTION(BlueprintPure, Category = "Frozen Forest|Database Connectors|OLEDB")
+	virtual FString GetConnectionString();
 
 };

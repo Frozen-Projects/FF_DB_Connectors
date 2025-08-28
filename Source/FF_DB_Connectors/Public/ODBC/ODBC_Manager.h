@@ -6,9 +6,9 @@
 #include "GameFramework/Actor.h"
 
 // Custom Includes.
-#include "ODBC/MS_ODBC_Result.h"
+#include "ODBC/ODBC_Result.h"
 
-#include "MS_ODBC_Manager.generated.h"
+#include "ODBC_Manager.generated.h"
 
 UDELEGATE(BlueprintAuthorityOnly)
 DECLARE_DYNAMIC_DELEGATE_TwoParams(FDelegate_ODBC_Connection, bool, IsSuccessfull, FString, Out_Code);
@@ -42,9 +42,6 @@ public:
 	// Sets default values for this actor's properties.
 	AODBC_Manager();
 
-	// Call this in FRunnableThread::Run() to execute a query. If there is a result, go to game thread and create a UODBC_Result object.
-	virtual int32 ExecuteQuery(FMS_ODBC_QueryHandler& Out_Handler, FString& Out_Code, const FString& SQL_Query);
-
 	// Called every frame.
 	virtual void Tick(float DeltaTime) override;
 
@@ -56,6 +53,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
 	virtual void Disconnect();
+
+	// Call this in FRunnableThread::Run() to execute a query. If there is a result, go to game thread and create a UODBC_Result object.
+	virtual int32 ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_Code, const FString& SQL_Query);
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
 	virtual void ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query);

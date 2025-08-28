@@ -28,13 +28,6 @@ void AOLEDB_Manager::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
-bool AOLEDB_Manager::InitializeCOM()
-{
-	HRESULT Result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-	this->bCOMInitialized = SUCCEEDED(Result) || Result == RPC_E_CHANGED_MODE;
-	return this->bCOMInitialized;
-}
-
 bool AOLEDB_Manager::ConnectDatabase(FString& OutCode, const FString& In_ConStr)
 {
     if (In_ConStr.IsEmpty())
@@ -45,9 +38,12 @@ bool AOLEDB_Manager::ConnectDatabase(FString& OutCode, const FString& In_ConStr)
 
     if (!this->bCOMInitialized)
     {
-        if (!this->InitializeCOM())
+        HRESULT Result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        this->bCOMInitialized = SUCCEEDED(Result) || Result == RPC_E_CHANGED_MODE;
+
+        if (FAILED(Result))
         {
-			OutCode = "FF Microsoft OLE DB : Failed to initialize COM library.";
+            OutCode = "FF Microsoft OLE DB : Failed to initialize COM library.";
             return false;
         }
     }
@@ -203,16 +199,20 @@ void AOLEDB_Manager::Disconnect()
     }
 }
 
-bool AOLEDB_Manager::SendQuery(void*& RowSetBuffer, FString Query)
+int32 AOLEDB_Manager::ExecuteQuery(void*& RowSetBuffer, int64& AffectedRows, FString& Out_Code, const FString& Query)
 {
     if (Query.IsEmpty())
     {
-        return false;
+		Out_Code = "FF Microsoft OLE DB : Query string shouldn't be empty !";
+		RowSetBuffer = nullptr;
+        return 0;
     }
 
     if (!this->DB_Command)
     {
-        return false;
+		Out_Code = "FF Microsoft OLE DB : Database is not connected !";
+		RowSetBuffer = nullptr;
+        return 0;
     }
 
     ICommandText* pCommandText = nullptr;
@@ -220,76 +220,110 @@ bool AOLEDB_Manager::SendQuery(void*& RowSetBuffer, FString Query)
 
     if (FAILED(Result))
     {
-        UE_LOG(LogTemp, Error, TEXT("CreateCommand failed: 0x%08X"), Result);
-        return false;
+		Out_Code = FString::Printf(TEXT("FF Microsoft OLE DB : CreateCommand failed. HRESULT: 0x%08X"), Result);
+		RowSetBuffer = nullptr;
+        return 0;
     }
 
     Result = pCommandText->SetCommandText(DBGUID_DBSQL, const_cast<LPOLESTR>(*Query));
 
     if (FAILED(Result))
     {
-        UE_LOG(LogTemp, Error, TEXT("SetCommandText failed: 0x%08X"), Result);
         pCommandText->Release();
-        return false;
+
+		Out_Code = FString::Printf(TEXT("FF Microsoft OLE DB : SetCommandText failed. HRESULT: 0x%08X"), Result);
+		RowSetBuffer = nullptr;
+        return 0;
     }
 
     IRowset* pRowset = nullptr;
+    DBROWCOUNT cRowsAffected = 0;
+    Result = pCommandText->Execute(nullptr, IID_IRowset, nullptr, &cRowsAffected, (IUnknown**)&pRowset);
+	AffectedRows = cRowsAffected < 0 ? 0 : (int64)cRowsAffected;
 
-    Result = pCommandText->Execute(nullptr, IID_IRowset, nullptr, nullptr, (IUnknown**)&pRowset);
     pCommandText->Release();
 
     if (FAILED(Result))
     {
-        UE_LOG(LogTemp, Error, TEXT("Execute failed: 0x%08X"), Result);
-        return false;
+        Out_Code = FString::Printf(TEXT("FF Microsoft OLE DB : Execute failed. HRESULT: 0x%08X"), Result);
+        RowSetBuffer = nullptr;
+        return 0;
     }
 
-	RowSetBuffer = reinterpret_cast<void*>(pRowset);
-    return true;
-}
-
-bool AOLEDB_Manager::ExecuteOnly(FString Query)
-{
-	void* pRowset = nullptr;
-
-    if (!this->SendQuery(pRowset, Query))
+    else if (SUCCEEDED(Result) && !pRowset)
     {
-        return false;
-    }
-
-    if (!pRowset)
-    {
-        return false;
-    }
-
-    return true;
-}
-
-bool AOLEDB_Manager::ExecuteAndGetResult(UOLEDB_Result*& OutResult, FString Query)
-{
-    void* pRowset = nullptr;
-
-    if (!this->SendQuery(pRowset, Query))
-    {
-        return false;
-    }
-
-    if (!pRowset)
-    {
-        return false;
-    }
-
-    UOLEDB_Result* ResultObject = NewObject<UOLEDB_Result>();
-    bool bSetResult = ResultObject->SetRowSetBuffer(reinterpret_cast<void*>(pRowset));
-
-    if (bSetResult)
-    {
-        OutResult = ResultObject;
-		return true;
+        Out_Code = "Query executed successfully, but no columns were returned. It is update only.";
+        RowSetBuffer = nullptr;
+        return 2;
     }
 
     else
     {
-        return false;
+        RowSetBuffer = reinterpret_cast<void*>(pRowset);
+        Out_Code = "Query executed successfully.";
+        return 1;
     }
+}
+
+void AOLEDB_Manager::ExecuteQueryBp(FDelegate_OLEDB_Execute DelegateExecute, const FString& Query)
+{
+    AsyncTask(ENamedThreads::AnyNormalThreadNormalTask, [this, DelegateExecute, Query]()
+        {
+            void* RowSetBuffer = nullptr;
+            int64 Affected_Rows = 0;
+            FString Out_Code;
+
+            int32 Result = this->ExecuteQuery(RowSetBuffer, Affected_Rows, Out_Code, Query);
+
+            switch (Result)
+            {
+                case 0:
+
+                    AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code]()
+                        {
+                            DelegateExecute.ExecuteIfBound(0, Out_Code, nullptr, 0);
+                        }
+				    );
+
+                    return;
+
+                case 1:
+
+                    AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, RowSetBuffer, Affected_Rows]()
+                        {
+						    UOLEDB_Result* ResultObject = NewObject<UOLEDB_Result>();
+                            ResultObject->SetRowSetBuffer(RowSetBuffer);
+						    DelegateExecute.ExecuteIfBound(1, Out_Code, ResultObject, Affected_Rows);
+                        }
+                    );
+
+                    return;
+
+			    case 2:
+
+                    AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, Affected_Rows]()
+                        {
+                            DelegateExecute.ExecuteIfBound(2, Out_Code, nullptr, Affected_Rows);
+                        }
+                    );
+
+                    return;
+
+                default:
+
+                    AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code]()
+                        {
+                            DelegateExecute.ExecuteIfBound(0, Out_Code, nullptr, 0);
+                        }
+                    );
+
+                    return;
+            }
+        }
+	);
+}
+
+FString AOLEDB_Manager::GetConnectionString()
+{
+    return this->ConnectionString;
 }

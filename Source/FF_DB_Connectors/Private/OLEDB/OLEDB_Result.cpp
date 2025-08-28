@@ -14,26 +14,7 @@ void UOLEDB_Result::BeginDestroy()
     Super::BeginDestroy();
 }
 
-bool UOLEDB_Result::SetRowSetBuffer(void* InRowSetBuffer)
-{
-    if (!InRowSetBuffer)
-    {
-        return false;
-    }
-
-	this->RowSetBuffer = InRowSetBuffer;
-    return true;
-}
-
-void* UOLEDB_Result::GetRowSetBuffer()
-{
-    return this->RowSetBuffer;
-}
-
-bool UOLEDB_Result::IsValid() const
-{
-    return this->RowSetBuffer != nullptr;
-}
+#pragma region Helper_Functions
 
 FString UOLEDB_Result::DBTypeToString(unsigned short InType)
 {
@@ -145,78 +126,92 @@ FString UOLEDB_Result::AnsiToFString(const char* AnsiStr)
     return FString(WideBuffer.GetData());
 }
 
-bool UOLEDB_Result::ResetCursor()
+#pragma endregion
+
+#pragma region Setters_Getters
+
+bool UOLEDB_Result::SetRowSetBuffer(void* InRowSetBuffer)
 {
-    if (!this->RowSetBuffer)
+    if (!InRowSetBuffer)
     {
         return false;
     }
 
-    IRowset* pRowset = reinterpret_cast<IRowset*>(RowSetBuffer);
-
-    if (!pRowset)
-    {
-        return false;
-    }
-
-    HRESULT Result = pRowset->RestartPosition(DB_NULL_HCHAPTER);
-
-    if (SUCCEEDED(Result))
-    {
-        return true;
-    }
-
-    else
-    {
-        return false;
-    }
+    this->RowSetBuffer = InRowSetBuffer;
+    return true;
 }
 
-bool UOLEDB_Result::GetColumnsInfos(TMap<FString, FOLEDB_ColumnInfo>& OutColumnInfo)
+void* UOLEDB_Result::GetRowSetBuffer()
 {
-    if (!this->RowSetBuffer)
+    return this->RowSetBuffer;
+}
+
+bool UOLEDB_Result::IsValid() const
+{
+    return this->RowSetBuffer != nullptr;
+}
+
+#pragma endregion
+
+#pragma region Internal_Functions
+
+FOLEDB_Cnt_CI UOLEDB_Result::GetColumnInfos_Internal(void* RowSetBuffer)
+{
+    if (!RowSetBuffer)
     {
-        return false;
+        FOLEDB_Cnt_CI EmptyResult;
+        EmptyResult.Out_Code = TEXT("Invalid RowSetBuffer");
+        EmptyResult.bIsSuccessfull = false;
+
+        return EmptyResult;
     }
 
     IRowset* pRowset = reinterpret_cast<IRowset*>(RowSetBuffer);
 
     if (!pRowset)
     {
-        return false;
-	}
+        FOLEDB_Cnt_CI EmptyResult;
+        EmptyResult.Out_Code = TEXT("Invalid IRowset");
+        EmptyResult.bIsSuccessfull = false;
 
-    // Ask for column metadata
-    IColumnsInfo* pColsInfo = nullptr;
-    HRESULT Result = pRowset->QueryInterface(IID_IColumnsInfo, (void**)&pColsInfo);
-    
-    if (FAILED(Result))
-    {
-        UE_LOG(LogTemp, Error, TEXT("QueryInterface(IColumnsInfo) failed: 0x%08X"), Result);
-        return false;
+        return EmptyResult;
     }
 
-    // Number of columns.
-    DBORDINAL cCols = 0;
-    DBCOLUMNINFO* Columns = nullptr;
-    OLECHAR* pStringsBuffer = nullptr;
-    
-    Result = pColsInfo->GetColumnInfo(&cCols, &Columns, &pStringsBuffer);
-    pColsInfo->Release();
+    IColumnsInfo* Column_Interface = nullptr;
+    HRESULT RetCode = pRowset->QueryInterface(IID_IColumnsInfo, (void**)&Column_Interface);
 
-    if (FAILED(Result))
+    if (FAILED(RetCode))
     {
-        UE_LOG(LogTemp, Error, TEXT("GetColumnInfo failed: 0x%08X"), Result);
-        return false;
+        FOLEDB_Cnt_CI EmptyResult;
+        EmptyResult.Out_Code = FString::Printf(TEXT("QueryInterface(IColumnsInfo) failed: 0x%08X"), RetCode);
+        EmptyResult.bIsSuccessfull = false;
+
+        return EmptyResult;
+    }
+
+    // DBCOLUMNINFO* Columns uses it. Don't forget to free both of them later and don't manipulate it directly.
+    OLECHAR* Columns_Buffer = nullptr;
+    DBORDINAL Column_Count = 0;
+    DBCOLUMNINFO* Columns = nullptr;
+
+    RetCode = Column_Interface->GetColumnInfo(&Column_Count, &Columns, &Columns_Buffer);
+    Column_Interface->Release();
+
+    if (FAILED(RetCode))
+    {
+        FOLEDB_Cnt_CI EmptyResult;
+        EmptyResult.Out_Code = FString::Printf(TEXT("GetColumnInfo failed: 0x%08X"), RetCode);
+        EmptyResult.bIsSuccessfull = false;
+
+        return EmptyResult;
     }
 
     TMap<FString, FOLEDB_ColumnInfo> Array_Columns_Infos;
-    Array_Columns_Infos.Reserve((int32)cCols);
+    Array_Columns_Infos.Reserve((int32)Column_Count);
 
-    for (ULONG i = 0; i < cCols; ++i)
+    for (ULONG Each_Column_Index = 0; Each_Column_Index < Column_Count; ++Each_Column_Index)
     {
-        const DBCOLUMNINFO& Each_Column = Columns[i];
-
+        const DBCOLUMNINFO& Each_Column = Columns[Each_Column_Index];
         const FString ColumnName = Each_Column.pwszName ? FString(Each_Column.pwszName) : FString();
 
         FOLEDB_ColumnInfo Each_Column_Info;
@@ -229,28 +224,28 @@ bool UOLEDB_Result::GetColumnsInfos(TMap<FString, FOLEDB_ColumnInfo>& OutColumnI
         Each_Column_Info.Flags = (int32)Each_Column.dwFlags;
         Each_Column_Info.FlagsText = ColumnFlagsToString(Each_Column.dwFlags);
 
-		const int32 eKind = (int32)Each_Column.columnid.eKind;
-		Each_Column_Info.Column_ID_Kind = eKind;
-		Each_Column_Info.Column_ID_Kind_String = UOLEDB_Result::ColumnIdKindToString(eKind).Len();
+        const int32 eKind = (int32)Each_Column.columnid.eKind;
+        Each_Column_Info.Column_ID_Kind = eKind;
+        Each_Column_Info.Column_ID_Kind_String = UOLEDB_Result::ColumnIdKindToString(eKind).Len();
 
         switch (eKind)
         {
             case DBKIND_GUID_NAME:
             {
                 const FString GuidStr = UOLEDB_Result::GuidToString(Each_Column.columnid.uGuid.guid);
-			    const FString uName = Each_Column.columnid.uName.pwszName ? FString(Each_Column.columnid.uName.pwszName) : FString();
-			    Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + uName;
-            
+                const FString uName = Each_Column.columnid.uName.pwszName ? FString(Each_Column.columnid.uName.pwszName) : FString();
+                Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + uName;
+
                 break;
             }
 
-		    case DBKIND_GUID_PROPID:
+            case DBKIND_GUID_PROPID:
             {
                 const FString GuidStr = UOLEDB_Result::GuidToString(Each_Column.columnid.uGuid.guid);
-			    const FString ulPropid = FString::FromInt((int32)Each_Column.columnid.uName.ulPropid);
-			    Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + ulPropid;
+                const FString ulPropid = FString::FromInt((int32)Each_Column.columnid.uName.ulPropid);
+                Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + ulPropid;
 
-			    break;
+                break;
             }
 
             case DBKIND_NAME:
@@ -261,27 +256,28 @@ bool UOLEDB_Result::GetColumnsInfos(TMap<FString, FOLEDB_ColumnInfo>& OutColumnI
             {
                 const GUID* pguid = Each_Column.columnid.uGuid.pguid;
                 const FString GuidStr = pguid ? UOLEDB_Result::GuidToString(*pguid) : TEXT("<null-pguid>");
-			    const FString uName = Each_Column.columnid.uName.pwszName ? FString(Each_Column.columnid.uName.pwszName) : FString();
-			    Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + uName;
+                const FString uName = Each_Column.columnid.uName.pwszName ? FString(Each_Column.columnid.uName.pwszName) : FString();
+                Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + uName;
 
-			    break;
+                break;
             }
 
             case DBKIND_PGUID_PROPID:
-		    {
-				const GUID* pguid = Each_Column.columnid.uGuid.pguid;
-			    const FString GuidStr = pguid ? UOLEDB_Result::GuidToString(*pguid) : TEXT("<null-pguid>");
-			    const FString ulPropid = FString::FromInt((int32)Each_Column.columnid.uName.ulPropid);
-			    Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + ulPropid;
+            {
+                const GUID* pguid = Each_Column.columnid.uGuid.pguid;
+                const FString GuidStr = pguid ? UOLEDB_Result::GuidToString(*pguid) : TEXT("<null-pguid>");
+                const FString ulPropid = FString::FromInt((int32)Each_Column.columnid.uName.ulPropid);
+                Each_Column_Info.Column_ID_String = FString(GuidStr) + TEXT(" / ") + ulPropid;
+
                 break;
-		    }
+            }
 
             case DBKIND_PROPID:
-			    Each_Column_Info.Column_ID_String = FString::FromInt((int32)Each_Column.columnid.uName.ulPropid);
-			    break;
+                Each_Column_Info.Column_ID_String = FString::FromInt((int32)Each_Column.columnid.uName.ulPropid);
+                break;
 
             case DBKIND_GUID:
-			    Each_Column_Info.Column_ID_String = UOLEDB_Result::GuidToString(Each_Column.columnid.uGuid.guid);
+                Each_Column_Info.Column_ID_String = UOLEDB_Result::GuidToString(Each_Column.columnid.uGuid.guid);
                 break;
         }
 
@@ -290,73 +286,80 @@ bool UOLEDB_Result::GetColumnsInfos(TMap<FString, FOLEDB_ColumnInfo>& OutColumnI
 
     // Free OLE DB allocations
     CoTaskMemFree(Columns);
-    CoTaskMemFree(pStringsBuffer);
+    CoTaskMemFree(Columns_Buffer);
 
-	OutColumnInfo = MoveTemp(Array_Columns_Infos);
-    return true;
+    FOLEDB_Cnt_CI Container;
+
+    Container.Column_Infos = MoveTemp(Array_Columns_Infos);
+    Container.Out_Code = FString::Printf(TEXT("Found %d columns."), Column_Count);
+    Container.bIsSuccessfull = true;
+
+    return Container;
 }
 
-bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
+bool UOLEDB_Result::GetColumnFromIndex_Internal(TArray<FString>& Out_Data, FString& Out_Code, int64 ColumnIndex, void* RowBuffer)
 {
-    if (!this->RowSetBuffer)
+    if (!RowBuffer)
     {
+        Out_Code = "Invalid RowSetBuffer !";
         return false;
     }
 
-    IRowset* pRowset = reinterpret_cast<IRowset*>(RowSetBuffer);
+    IRowset* pRowset = reinterpret_cast<IRowset*>(RowBuffer);
 
     if (!pRowset)
     {
+        Out_Code = "Invalid IRowset !";
         return false;
     }
 
-    if (!this->bCursorAtStart)
-    {
-        this->ResetCursor();
-    }
+    // Restart position to the beginning.
+    pRowset->RestartPosition(DB_NULL_HCHAPTER);
 
     // Get column info to validate the column index
     IColumnsInfo* pColsInfo = nullptr;
-    HRESULT Result = pRowset->QueryInterface(IID_IColumnsInfo, (void**)&pColsInfo);
+    HRESULT RetCode = pRowset->QueryInterface(IID_IColumnsInfo, (void**)&pColsInfo);
 
-    if (FAILED(Result))
+    if (FAILED(RetCode))
     {
-        UE_LOG(LogTemp, Error, TEXT("QueryInterface(IColumnsInfo) failed: 0x%08X"), Result);
+        Out_Code = FString::Printf(TEXT("QueryInterface(IColumnsInfo) failed: 0x%08X"), RetCode);
         return false;
     }
 
-    // Number of columns.
-    DBORDINAL cCols = 0;
+    // DBCOLUMNINFO* Columns uses it. Don't forget to free both of them later and don't manipulate it directly.
+    OLECHAR* Columns_Buffer = nullptr;
+    DBORDINAL Column_Count = 0;
     DBCOLUMNINFO* Columns = nullptr;
-    OLECHAR* pStringsBuffer = nullptr;
 
-    Result = pColsInfo->GetColumnInfo(&cCols, &Columns, &pStringsBuffer);
+    RetCode = pColsInfo->GetColumnInfo(&Column_Count, &Columns, &Columns_Buffer);
     pColsInfo->Release();
 
-    if (FAILED(Result))
+    if (FAILED(RetCode))
     {
-        UE_LOG(LogTemp, Error, TEXT("GetColumnInfo failed: 0x%08X"), Result);
+        Out_Code = FString::Printf(TEXT("GetColumnInfo failed: 0x%08X"), RetCode);
         return false;
     }
 
     // Check if the column index is valid
-    if (ColumnIndex < 0 || ColumnIndex >= (int32)cCols)
+    if (ColumnIndex < 0 || ColumnIndex >= (int32)Column_Count)
     {
-        UE_LOG(LogTemp, Error, TEXT("Invalid column index: %d (column count: %d)"), ColumnIndex, cCols);
         CoTaskMemFree(Columns);
-        CoTaskMemFree(pStringsBuffer);
+        CoTaskMemFree(Columns_Buffer);
+
+        Out_Code = FString::Printf(TEXT("Invalid column index: %d (column count: %d)"), ColumnIndex, Column_Count);
         return false;
     }
 
     // Get accessor from rowset
     IAccessor* pAccessor = nullptr;
-    Result = pRowset->QueryInterface(IID_IAccessor, (void**)&pAccessor);
+    RetCode = pRowset->QueryInterface(IID_IAccessor, (void**)&pAccessor);
 
-    if (FAILED(Result))
+    if (FAILED(RetCode))
     {
-        UE_LOG(LogTemp, Error, TEXT("QueryInterface(IAccessor) failed: 0x%08X"), Result);
         CoTaskMemFree(Columns);
-        CoTaskMemFree(pStringsBuffer);
+        CoTaskMemFree(Columns_Buffer);
+
+        Out_Code = FString::Printf(TEXT("QueryInterface(IAccessor) failed: 0x%08X"), RetCode);
         return false;
     }
 
@@ -376,14 +379,15 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
     Binding.obLength = sizeof(DBSTATUS);
     Binding.obValue = sizeof(DBSTATUS) + sizeof(DBLENGTH);
 
-    Result = pAccessor->CreateAccessor(DBACCESSOR_ROWDATA, 1, &Binding, 0, &hAccessor, NULL);
+    RetCode = pAccessor->CreateAccessor(DBACCESSOR_ROWDATA, 1, &Binding, 0, &hAccessor, NULL);
 
-    if (FAILED(Result))
+    if (FAILED(RetCode))
     {
-        UE_LOG(LogTemp, Error, TEXT("CreateAccessor failed: 0x%08X"), Result);
         pAccessor->Release();
         CoTaskMemFree(Columns);
-        CoTaskMemFree(pStringsBuffer);
+        CoTaskMemFree(Columns_Buffer);
+
+        Out_Code = FString::Printf(TEXT("CreateAccessor failed: 0x%08X"), RetCode);
         return false;
     }
 
@@ -393,14 +397,14 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
     BYTE* pData = new BYTE[Binding.cbMaxLen + sizeof(DBSTATUS) + sizeof(DBLENGTH)];
 
     // Clear the output array
-    OutData.Empty();
+    Out_Data.Empty();
 
     // Fetch rows
     while (true)
     {
-        Result = pRowset->GetNextRows(DB_NULL_HCHAPTER, 0, 1, &cRowsObtained, &phRow);
+        RetCode = pRowset->GetNextRows(DB_NULL_HCHAPTER, 0, 1, &cRowsObtained, &phRow);
 
-        if (FAILED(Result) || cRowsObtained == 0)
+        if (FAILED(RetCode) || cRowsObtained == 0)
         {
             break;
         }
@@ -409,9 +413,9 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
         FMemory::Memzero(pData, Binding.cbMaxLen + sizeof(DBSTATUS) + sizeof(DBLENGTH));
 
         // Get data for the row
-        Result = pRowset->GetData(phRow[0], hAccessor, pData);
+        RetCode = pRowset->GetData(phRow[0], hAccessor, pData);
 
-        if (SUCCEEDED(Result))
+        if (SUCCEEDED(RetCode))
         {
             DBSTATUS* pStatus = (DBSTATUS*)pData;
             DBLENGTH* pLength = (DBLENGTH*)(pData + sizeof(DBSTATUS));
@@ -431,10 +435,10 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
 
                         // Get the actual length in characters (not including null terminator)
                         int32 Length = (*pLength) / sizeof(WCHAR);
-                        
+
                         if (Length > 0)
                         {
-							Value.AppendChars(wideStr, Length);
+                            Value.AppendChars(wideStr, Length);
                         }
 
                         else
@@ -449,10 +453,10 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
                     {
                         // For ANSI strings, assume they're in UTF-8 encoding
                         int32 Length = (*pLength);
-                        
+
                         if (Length > 0)
                         {
-							Value = UOLEDB_Result::AnsiToFString((const char*)pValue);
+                            Value = UOLEDB_Result::AnsiToFString((const char*)pValue);
                         }
 
                         else
@@ -479,22 +483,24 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
                         Value = *(VARIANT_BOOL*)pValue ? TEXT("True") : TEXT("False");
                         break;
                     case DBTYPE_GUID:
-                        Value = GuidToString(*(GUID*)pValue);
+                        Value = UOLEDB_Result::GuidToString(*(GUID*)pValue);
                         break;
                     default:
                         Value = TEXT("[Unsupported type]");
                         break;
                 }
 
-                OutData.Add(Value);
+                Out_Data.Add(Value);
             }
+
             else if (*pStatus == DBSTATUS_S_ISNULL)
             {
-                OutData.Add(TEXT("NULL"));
+                Out_Data.Add(TEXT("NULL"));
             }
+
             else
             {
-                OutData.Add(FString::Printf(TEXT("[Error: %d]"), *pStatus));
+                Out_Data.Add(FString::Printf(TEXT("[Error: %d]"), *pStatus));
             }
         }
 
@@ -508,76 +514,158 @@ bool UOLEDB_Result::GetColumnData(TArray<FString>& OutData, int32 ColumnIndex)
     delete[] pData;
     delete[] phRow;
     CoTaskMemFree(Columns);
-    CoTaskMemFree(pStringsBuffer);
+    CoTaskMemFree(Columns_Buffer);
 
-	this->bCursorAtStart = false;
+    Out_Code = FString::Printf(TEXT("Fetched %d rows for column index %d."), Out_Data.Num(), ColumnIndex);
     return true;
 }
 
-bool UOLEDB_Result::GetAllData(TMap<FVector2D, FString>& OutData, TArray<int64>& RowCounts)
+FOLEDB_Stuct_GetAll UOLEDB_Result::GetAllData_Internal(void* InBuffer)
 {
-    if (!this->RowSetBuffer)
+    if (!InBuffer)
     {
-        return false;
+        return FOLEDB_Stuct_GetAll(false, TEXT("RowSetBuffer is null"));
     }
 
-    IRowset* pRowset = reinterpret_cast<IRowset*>(RowSetBuffer);
-
+    IRowset* pRowset = reinterpret_cast<IRowset*>(InBuffer);
     if (!pRowset)
     {
-        return false;
+        return FOLEDB_Stuct_GetAll(false, TEXT("RowSetBuffer is not IRowset"));
     }
+
+    // Restart position to the beginning.
+    pRowset->RestartPosition(DB_NULL_HCHAPTER);
 
     // Ask for column metadata
     IColumnsInfo* pColsInfo = nullptr;
-    HRESULT Result = pRowset->QueryInterface(IID_IColumnsInfo, (void**)&pColsInfo);
+    HRESULT RetCode = pRowset->QueryInterface(IID_IColumnsInfo, (void**)&pColsInfo);
 
-    if (FAILED(Result))
+    if (FAILED(RetCode))
     {
-        UE_LOG(LogTemp, Error, TEXT("QueryInterface(IColumnsInfo) failed: 0x%08X"), Result);
-        return false;
+        return FOLEDB_Stuct_GetAll(false, FString::Printf(TEXT("QueryInterface(IColumnsInfo) failed: 0x%08X"), RetCode));
     }
 
-    // Number of columns.
-    DBORDINAL cCols = 0;
+    // DBCOLUMNINFO* Columns uses it. Don't forget to free both of them later and don't manipulate it directly.
+    OLECHAR* Columns_Buffer = nullptr;
+    DBORDINAL Column_Count = 0;
     DBCOLUMNINFO* Columns = nullptr;
-    OLECHAR* pStringsBuffer = nullptr;
 
-    Result = pColsInfo->GetColumnInfo(&cCols, &Columns, &pStringsBuffer);
+    RetCode = pColsInfo->GetColumnInfo(&Column_Count, &Columns, &Columns_Buffer);
     pColsInfo->Release();
 
-    if (FAILED(Result))
+    if (FAILED(RetCode))
     {
-        UE_LOG(LogTemp, Error, TEXT("GetColumnInfo failed: 0x%08X"), Result);
-        return false;
+        return FOLEDB_Stuct_GetAll(false, FString::Printf(TEXT("GetColumnInfo failed: 0x%08X"), RetCode));
     }
 
-    if (cCols <= 0)
+    if (Column_Count <= 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("No columns in the result set."));
         CoTaskMemFree(Columns);
-        CoTaskMemFree(pStringsBuffer);
-        return false;
+        CoTaskMemFree(Columns_Buffer);
+
+        return FOLEDB_Stuct_GetAll(false, TEXT("No columns found"));
     }
 
-    OutData.Empty();
-    RowCounts.Empty();
+    ULONGLONG TempRowCount = 0;
+    bool bRowCountInitialized = false;
 
-    for (ULONGLONG ColumnIndex = 0; ColumnIndex < cCols; ColumnIndex++)
+    FOLEDB_Stuct_GetAll OutResult;
+    OutResult.Columns_Count = (int64)Column_Count;
+
+    for (ULONGLONG ColumnIndex = 0; ColumnIndex < Column_Count; ColumnIndex++)
     {
+        FString EachIndexLog;
         TArray<FString> Each_Column_Data;
-        this->GetColumnData(Each_Column_Data, (int32)ColumnIndex);
 
-        const ULONGLONG RowCount = Each_Column_Data.Num();
-        RowCounts.Emplace((int64)RowCount);
+        if (!UOLEDB_Result::GetColumnFromIndex_Internal(Each_Column_Data, EachIndexLog, (int64)ColumnIndex, InBuffer))
+        {
+            continue;
+        }
 
-        for (ULONGLONG RowIndex = 0; RowIndex < RowCount; RowIndex++)
+        if (!bRowCountInitialized)
+        {
+            TempRowCount = Each_Column_Data.Num();
+
+            if (TempRowCount == 0)
+            {
+                continue;
+            }
+
+            else
+            {
+                OutResult.Rows_Count = (int64)TempRowCount;
+                bRowCountInitialized = true;
+            }
+        }
+
+        for (ULONGLONG RowIndex = 0; RowIndex < TempRowCount; RowIndex++)
         {
             FVector2D Key = FVector2D((double)ColumnIndex, (double)RowIndex);
             const FString EachRowData = Each_Column_Data[(int32)RowIndex];
-            OutData.Add(Key, EachRowData);
+
+            OutResult.Data.Add(Key, EachRowData);
         }
     }
 
-    return true;
+    OutResult.bIsSuccessfull = true;
+    OutResult.Out_Code = "All data successfully fetched.";
+    OutResult.Data = MoveTemp(OutResult.Data);
+
+    CoTaskMemFree(Columns);
+    CoTaskMemFree(Columns_Buffer);
+
+    return OutResult;
 }
+
+#pragma endregion
+
+#pragma region Blueprint_Functions
+
+void UOLEDB_Result::GetColumnInfos(FDelegate_OLEDB_CI DelegateColumnInfos)
+{
+    AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, DelegateColumnInfos]()
+        {
+            FOLEDB_Cnt_CI Result = UOLEDB_Result::GetColumnInfos_Internal(this->RowSetBuffer);
+
+            AsyncTask(ENamedThreads::GameThread, [DelegateColumnInfos, Result]()
+                {
+                    DelegateColumnInfos.ExecuteIfBound(Result);
+                }
+            );
+        }
+    );
+}
+
+void UOLEDB_Result::GetColumnFromIndex(FDelegate_OLEDB_GetColumn DelegateColumns, int64 ColumnIndex)
+{
+    AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, DelegateColumns, ColumnIndex]()
+        {
+            TArray<FString> Out_Data;
+            FString Out_Code;
+            const bool bSuccess = UOLEDB_Result::GetColumnFromIndex_Internal(Out_Data, Out_Code, ColumnIndex, this->RowSetBuffer);
+            
+            AsyncTask(ENamedThreads::GameThread, [DelegateColumns, Out_Data, Out_Code, bSuccess]()
+                {
+                    DelegateColumns.ExecuteIfBound(bSuccess, Out_Code, Out_Data);
+                }
+            );
+        }
+	);
+}
+
+void UOLEDB_Result::GetAllData(FDelegate_OLEDB_GetAll DelegateFetch)
+{
+    AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, DelegateFetch]()
+        {
+            FOLEDB_Stuct_GetAll Result = UOLEDB_Result::GetAllData_Internal(this->RowSetBuffer);
+            
+            AsyncTask(ENamedThreads::GameThread, [DelegateFetch, Result]()
+                {
+                    DelegateFetch.ExecuteIfBound(Result);
+                }
+			);
+        }
+    );
+}
+
+#pragma endregion

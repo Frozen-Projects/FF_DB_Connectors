@@ -1,4 +1,4 @@
-#include "ODBC/MS_ODBC_Manager.h"
+#include "ODBC/ODBC_Manager.h"
 
 // Sets default values.
 AODBC_Manager::AODBC_Manager()
@@ -140,7 +140,7 @@ void AODBC_Manager::Disconnect()
 	}
 }
 
-int32 AODBC_Manager::ExecuteQuery(FMS_ODBC_QueryHandler& Out_Handler, FString& Out_Code, const FString& SQL_Query)
+int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_Code, const FString& SQL_Query)
 {
 	if (SQL_Query.IsEmpty())
 	{
@@ -179,7 +179,7 @@ int32 AODBC_Manager::ExecuteQuery(FMS_ODBC_QueryHandler& Out_Handler, FString& O
 		return 0;
 	}
 
-	FMS_ODBC_QueryHandler Temp_Handler;
+	FODBC_QueryHandler Temp_Handler;
 	Temp_Handler.SQL_Handle = SQL_Handle;
 	Temp_Handler.SentQuery = SQL_Query;
 	const int32 RecordResult = Temp_Handler.Record_Result(Out_Code);
@@ -207,7 +207,7 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, DelegateExecute, SQL_Query]()
 		{
 			FString Out_Code;
-			FMS_ODBC_QueryHandler Temp_Handler;
+			FODBC_QueryHandler Temp_Handler;
 			const int32 ExecuteResult = this->ExecuteQuery(Temp_Handler, Out_Code, SQL_Query);
 
 			switch (ExecuteResult)
@@ -236,14 +236,17 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 					return;
 
 				case 2:
+				{
+					const int64 Affected_Rows = Temp_Handler.Affected_Rows;
 
-					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, Temp_Handler]()
+					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, Affected_Rows]()
 						{
-							DelegateExecute.ExecuteIfBound(2, Out_Code, nullptr, Temp_Handler.Affected_Rows);
+							DelegateExecute.ExecuteIfBound(2, Out_Code, nullptr, Affected_Rows);
 						}
 					);
 
 					return;
+				}
 
 				default:
 

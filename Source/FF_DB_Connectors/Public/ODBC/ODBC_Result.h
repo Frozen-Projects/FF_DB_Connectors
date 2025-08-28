@@ -3,12 +3,12 @@
 #include "CoreMinimal.h"
 
 // Custom Includes.
-#include "ODBC/MS_ODBC_Includes.h"
+#include "ODBC/ODBC_Includes.h"
 
-#include "MS_ODBC_Result.generated.h"
+#include "ODBC_Result.generated.h"
 
 USTRUCT(BlueprintType)
-struct FF_DB_CONNECTORS_API FMS_ODBC_DataValue
+struct FF_DB_CONNECTORS_API FODBC_DataValue
 {
 	GENERATED_BODY()
 
@@ -50,7 +50,7 @@ public:
 };
 
 USTRUCT(BlueprintType)
-struct FF_DB_CONNECTORS_API FMS_ODBC_MetaData
+struct FF_DB_CONNECTORS_API FODBC_ColumnInfo
 {
 	GENERATED_BODY()
 
@@ -76,7 +76,7 @@ public:
 };
 
 USTRUCT()
-struct FF_DB_CONNECTORS_API FMS_ODBC_QueryHandler
+struct FF_DB_CONNECTORS_API FODBC_QueryHandler
 {
 	GENERATED_BODY()
 
@@ -92,9 +92,9 @@ public:
 	int64 Affected_Rows = 0;
 	int64 Count_Rows = 0;
 	int64 Count_Columns = 0;
-	TMap<FVector2D, FMS_ODBC_DataValue> Data_Pool;
+	TMap<FVector2D, FODBC_DataValue> Data_Pool;
 
-	bool GetEachMetaData(FMS_ODBC_MetaData& Out_MetaData, int32 ColumnIndex);
+	bool GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32 ColumnIndex);
 	
 	// 0 = Failed, 1 = Success , 2 = Update Only.
 	int32 Record_Result(FString& Out_Code);
@@ -109,7 +109,7 @@ class FF_DB_CONNECTORS_API UODBC_Result : public UObject
 private:
 
 	mutable FCriticalSection ResultGuard;
-	FMS_ODBC_QueryHandler QueryHandler;
+	FODBC_QueryHandler QueryHandler;
 
 protected:
 
@@ -118,7 +118,7 @@ protected:
 
 public:
 
-	virtual bool SetQueryResult(FMS_ODBC_QueryHandler In_Handler);
+	virtual bool SetQueryResult(FODBC_QueryHandler In_Handler);
 
 	UFUNCTION(BlueprintPure)
 	virtual int64 GetColumnNumber();
@@ -133,18 +133,17 @@ public:
 	virtual FString GetQueryString();
 
 	UFUNCTION(BlueprintCallable)
-	virtual bool GetRow(FString& Out_Code, TArray<FMS_ODBC_DataValue>& Out_Values, int32 Index_Row);
+	virtual bool GetColumnInfos(FString& Out_Code, TArray<FODBC_ColumnInfo>& Out_ColumnInfo);
 
 	UFUNCTION(BlueprintCallable)
-	virtual bool GetColumnFromIndex(FString& Out_Code, TArray<FMS_ODBC_DataValue>& Out_Values, int32 Index_Column);
+	virtual bool GetColumnFromIndex(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values, int64 Index_Column);
 
 	UFUNCTION(BlueprintCallable)
-	virtual bool GetColumnFromName(FString& Out_Code, TArray<FMS_ODBC_DataValue>& Out_Values, FString ColumName);
+	virtual bool GetColumnFromName(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values, FString ColumName);
 
 	UFUNCTION(BlueprintCallable)
-	virtual bool GetSingleData(FString& Out_Code, FMS_ODBC_DataValue& Out_Value, FVector2D Position);
+	virtual bool GetSingleData(FString& Out_Code, FODBC_DataValue& Out_Value, FVector2D Position);
 
 	UFUNCTION(BlueprintCallable)
-	virtual bool GetMetaData(FString& Out_Code, TArray<FMS_ODBC_MetaData>& Out_MetaData);
-
+	virtual bool GetRow(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values, int64 Index_Row);
 };
