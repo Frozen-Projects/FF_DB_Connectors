@@ -102,22 +102,12 @@ void AODBC_Manager::CreateConnection(FDelegate_ODBC_Connection DelegateConnectio
 			FString Out_Code;
 			FString CreatedString;
 
-			if (!this->ConnectDatabase(Out_Code, In_ConStr))
-			{
-				this->ConnectionString = In_ConStr;
+			const bool ConnectionResult = this->ConnectDatabase(CreatedString, In_ConStr);
+			this->ConnectionString = ConnectionResult ? In_ConStr : "";
 
-				AsyncTask(ENamedThreads::GameThread, [DelegateConnection, Out_Code]()
-					{
-						DelegateConnection.ExecuteIfBound(false, Out_Code);
-					}
-				);
-
-				return;
-			}
-			
-			AsyncTask(ENamedThreads::GameThread, [DelegateConnection, Out_Code]()
+			AsyncTask(ENamedThreads::GameThread, [DelegateConnection, ConnectionResult, CreatedString]()
 				{
-					DelegateConnection.ExecuteIfBound(true, Out_Code);
+					DelegateConnection.ExecuteIfBound(ConnectionResult, CreatedString);
 				}
 			);
 		}
