@@ -2,8 +2,8 @@
 
 #include "CoreMinimal.h"
 
-#include "Generic_Includes.h"
 #include "OLEDB/OLEDB_Tools.h"
+#include "OLEDB/OLEDB_Public_Includes.h"
 
 #include "OLEDB_Result.generated.h"
 

@@ -1,7 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "OLEDB/OLEDB_Manager.h"
-#include "OLEDB/OLEDB_Includes.h"
+#include "OLEDB/OLEDB_Private_Includes.h"
 
 // Sets default values.
 AOLEDB_Manager::AOLEDB_Manager()

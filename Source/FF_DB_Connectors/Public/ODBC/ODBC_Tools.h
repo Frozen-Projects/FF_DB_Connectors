@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ODBC/ODBC_Includes.h"
 #include "ODBC_Tools.generated.h"
 
 USTRUCT(BlueprintType)

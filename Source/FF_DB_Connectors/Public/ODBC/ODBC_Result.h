@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 // Custom Includes.
-#include "ODBC/ODBC_Includes.h"
 #include "ODBC/ODBC_Tools.h"
 
 #include "ODBC_Result.generated.h"

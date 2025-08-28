@@ -12,18 +12,19 @@ void UVirtualFileSubsystem::Deinitialize()
 }
 
 #ifdef _WIN64
-std::string UVirtualFileSubsystem::GetErrorString(DWORD ErrorCode)
+FString UVirtualFileSubsystem::GetErrorString(DWORD ErrorCode)
 {
 	char* msgBuffer = nullptr;
 	size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM, nullptr, ErrorCode, 0, (LPSTR)&msgBuffer, 0, nullptr);
 
 	std::string message(msgBuffer, size);
 	LocalFree(msgBuffer);
-	return message;
+	
+	return (FString)UTF8_TO_TCHAR(message.c_str());
 }
 #endif // _WIN64
 
-bool UVirtualFileSubsystem::FileAddCallback(FString& Out_Code, FString FileName, TMap<FString, FString> Headers, const TArray<uint8>& FileData)
+bool UVirtualFileSubsystem::FileAddCallback(FString& Out_Code, FString FileName, const TArray<uint8>& FileData, TMap<FString, FString> Headers)
 {
 #ifdef _WIN64
 
@@ -33,78 +34,76 @@ bool UVirtualFileSubsystem::FileAddCallback(FString& Out_Code, FString FileName,
 	const size_t BufferSize = FileData.Num();
 
 	HANDLE TempHandle = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, static_cast<DWORD>(BufferSize), FileNameChar);
-	const DWORD LastError = GetLastError();
+	DWORD LastError = GetLastError();
 
 	if (!TempHandle)
 	{
-		FString ErrorTitle = "Failed to create file mapping at: " + FileName + " : ";
-
-		std::stringstream ErrorStream;
-		ErrorStream << TCHAR_TO_UTF8(*ErrorTitle) << this->GetErrorString(LastError);
-		Out_Code = FString(ErrorStream.str().c_str());
-
+		Out_Code = "Failed to create file mapping at: " + FileName + " : " + UVirtualFileSubsystem::GetErrorString(LastError);
 		return false;
 	}
 
 	if (LastError == ERROR_ALREADY_EXISTS)
 	{
-		FString ErrorTitle = "There is already a virtual file with that name from another process: " + FileName + " : ";
-
-		std::stringstream ErrorStream;
-		ErrorStream << TCHAR_TO_UTF8(*ErrorTitle) << this->GetErrorString(LastError);
-		Out_Code = FString(ErrorStream.str().c_str());
+		Out_Code = "File mapping already exists at: " + FileName + " : " + UVirtualFileSubsystem::GetErrorString(LastError);
 
 		CloseHandle(TempHandle);
-
 		return false;
 	}
 
+	// Map the file to memory
 	void* TempBuffer = MapViewOfFile(TempHandle, FILE_MAP_ALL_ACCESS, 0, 0, BufferSize);
 
 	if (!TempBuffer)
 	{
-		FString ErrorTitle = "Failed to map view of file at: " + FileName + " : ";
-
-		std::stringstream ErrorStream;
-		ErrorStream << TCHAR_TO_UTF8(*ErrorTitle) << this->GetErrorString(GetLastError());
-		Out_Code = FString(ErrorStream.str().c_str());
+		LastError = GetLastError();
+		Out_Code = "Failed to map view of file at: " + FileName + " : " + UVirtualFileSubsystem::GetErrorString(LastError);
 
 		CloseHandle(TempHandle);
 		UnmapViewOfFile(TempBuffer);
-
 		return false;
 	}
 
+	// Copy the data to the mapped memory. If we move, we can lose original content.
 	FMemory::Memcpy(TempBuffer, FileData.GetData(), BufferSize);
 
-	FFileMapHandles FileStruct;
+	// We need to store the handle and the pointer to the mapped memory so we can unmap and close it later and prevent dangling handles and pointers.
+	FVFM_Store FileStruct;
 	FileStruct.MappedMemory = TempBuffer;
 	FileStruct.MappedSize = BufferSize;
 	FileStruct.MappingHandle = TempHandle;
 
-	for (const TPair<FString, FString>& Header : Headers)
+	if (!Headers.IsEmpty())
 	{
-		FileStruct.Header.JsonObject->SetStringField(Header.Key, Header.Value);
+		FJsonObjectWrapper TempWrapper;
+		
+		for (const TPair<FString, FString>& Each_Header : Headers)
+		{
+			FJsonObjectWrapper Each_Header_Json;
+			Each_Header_Json.JsonObject->SetStringField(Each_Header.Key, Each_Header.Value);
+			TempWrapper.JsonObject->SetObjectField(Each_Header.Key, Each_Header_Json.JsonObject);
+		}
+
+		FileStruct.Headers = TempWrapper;
 	}
 
 	this->VirtualFileMaps.Add(FileName, FileStruct);
+	FScopeLock Unlock(&this->VFM_Guard);
 
 	Out_Code = TEXT("File added successfully.");
 	return true;
 
 #else
-
 	return false;
-
 #endif // _WIN64
 }
 
 void UVirtualFileSubsystem::FileRemoveCallback(FString FileName)
 {
 #ifdef _WIN64
+	
 	FScopeLock Lock(&this->VFM_Guard);
 
-	if (FFileMapHandles* FileHandle = this->VirtualFileMaps.Find(FileName))
+	if (FVFM_Store* FileHandle = this->VirtualFileMaps.Find(FileName))
 	{
 		if (FileHandle->MappedMemory)
 		{
@@ -118,11 +117,14 @@ void UVirtualFileSubsystem::FileRemoveCallback(FString FileName)
 			FileHandle->MappingHandle = nullptr;
 		}
 
-		FileHandle->Header.JsonObject.Reset();
 		FileHandle->MappedSize = 0;
+		FileHandle->Headers = FJsonObjectWrapper();
 
 		this->VirtualFileMaps.Remove(FileName);
 	}
+
+	FScopeLock Unlock(&this->VFM_Guard);
+
 #else
 	return;
 #endif // _WIN64
@@ -131,11 +133,12 @@ void UVirtualFileSubsystem::FileRemoveCallback(FString FileName)
 void UVirtualFileSubsystem::CleanUpFileHandles()
 {
 #ifdef _WIN64
+	
 	FScopeLock Lock(&this->VFM_Guard);
 
-	for (TPair<FString, FFileMapHandles>& Pair : this->VirtualFileMaps)
+	for (TPair<FString, FVFM_Store>& Pair : this->VirtualFileMaps)
 	{
-		FFileMapHandles& FileHandle = Pair.Value;
+		FVFM_Store& FileHandle = Pair.Value;
 
 		if (FileHandle.MappedMemory)
 		{
@@ -149,19 +152,22 @@ void UVirtualFileSubsystem::CleanUpFileHandles()
 			FileHandle.MappingHandle = nullptr;
 		}
 
-		FileHandle.Header.JsonObject.Reset();
 		FileHandle.MappedSize = 0;
+		FileHandle.Headers = FJsonObjectWrapper();
 	}
 
 	this->VirtualFileMaps.Empty();
+	FScopeLock Unlock(&this->VFM_Guard);
+
 #else
 	return;
 #endif // _WIN64
 }
 
-bool UVirtualFileSubsystem::AddFile(FString&Out_Code, FString FileName, TMap<FString, FString> Headers, const TArray<uint8>& FileData, bool bAllowUpdate)
+bool UVirtualFileSubsystem::AddFile(FString&Out_Code, FString FileName, const TArray<uint8>& FileData, TMap<FString, FString> Headers, bool bAllowUpdate)
 {
 #ifdef _WIN64
+
 	if (FileName.IsEmpty())
 	{
 		Out_Code = TEXT("FileName is empty");
@@ -176,17 +182,18 @@ bool UVirtualFileSubsystem::AddFile(FString&Out_Code, FString FileName, TMap<FSt
 
 	if (!this->VirtualFileMaps.Contains(FileName))
 	{
-		return this->FileAddCallback(Out_Code, FileName, Headers, FileData);
+		return this->FileAddCallback(Out_Code, FileName, FileData, Headers);
 	}
 
 	else if (bAllowUpdate)
 	{
 		this->FileRemoveCallback(FileName);
-		return this->FileAddCallback(Out_Code, FileName, Headers, FileData);
+		return this->FileAddCallback(Out_Code, FileName, FileData, Headers);
 	}
 
 	Out_Code = "File already exists and update is not allowed.";
 	return false;
+
 #else
 	return false;
 #endif // _WIN64
@@ -195,6 +202,7 @@ bool UVirtualFileSubsystem::AddFile(FString&Out_Code, FString FileName, TMap<FSt
 bool UVirtualFileSubsystem::RemoveFile(FString& Out_Code, FString FileName)
 {
 #ifdef _WIN64
+	
 	if (FileName.IsEmpty())
 	{
 		Out_Code = TEXT("FileName is empty");
@@ -217,115 +225,120 @@ bool UVirtualFileSubsystem::RemoveFile(FString& Out_Code, FString FileName)
 
 	Out_Code = TEXT("File removed successfully.");
 	return true;
+
 #else
 	return false;
 #endif // _WIN64
 }
 
-bool UVirtualFileSubsystem::GetFile(TArray<uint8>& Out_Buffer, FString& Out_Code, FString FileName)
+bool UVirtualFileSubsystem::FindOtherFiles(TArray<uint8>& Out_Buffer, FString& Out_Code, const FString& FileName)
 {
 #ifdef _WIN64
+
 	if (FileName.IsEmpty())
 	{
-		Out_Code = TEXT("FileName is empty");
+		Out_Code = TEXT("FileName is empty.");
 		return false;
 	}
 
+	const wchar_t* NameW = *FileName;
+
+	// 1) Open the named mapping created by another process
+	HANDLE Mapping = OpenFileMappingW(FILE_MAP_READ, false, NameW);
+
+	if (!Mapping)
+	{
+		const DWORD Error = GetLastError();
+		Out_Code = "OpenFileMappingW failed : " + UVirtualFileSubsystem::GetErrorString(Error);
+		return false;
+	}
+
+	// 2) Map the whole section for reading (dwNumberOfBytesToMap = 0 => entire section)
+	void* View = MapViewOfFile(Mapping, FILE_MAP_READ, 0, 0, 0);
+
+	if (!View)
+	{
+		const DWORD Error = GetLastError();
+		Out_Code = "MapViewOfFile failed : " + UVirtualFileSubsystem::GetErrorString(Error);
+
+		CloseHandle(Mapping);
+		return false;
+	}
+
+	// 3) Determine the size of the mapped view. We accumulate RegionSize across contiguous regions that share the same AllocationBase.
+	BYTE* Cursor = static_cast<BYTE*>(View);
+	MEMORY_BASIC_INFORMATION Mbi{};
+	SIZE_T TotalSize = 0;
+
+	// AllocationBase of the first region corresponds to the base of this view
+	if (VirtualQuery(View, &Mbi, sizeof(Mbi)) == 0)
+	{
+		UnmapViewOfFile(View);
+		CloseHandle(Mapping);
+
+		const DWORD Error = GetLastError();
+		Out_Code = "VirtualQuery failed: " + UVirtualFileSubsystem::GetErrorString(Error);
+
+		return false;
+	}
+
+	void* const AllocationBase = Mbi.AllocationBase;
+
+	// Walk forward until AllocationBase changes (end of this view)
+	while (VirtualQuery(Cursor, &Mbi, sizeof(Mbi)) != 0 && Mbi.AllocationBase == AllocationBase)
+	{
+		TotalSize += Mbi.RegionSize;
+		Cursor += Mbi.RegionSize;
+	}
+
+	if (TotalSize == 0)
+	{
+		Out_Code = TEXT("Mapped view size is 0.");
+		UnmapViewOfFile(View);
+		CloseHandle(Mapping);
+		return false;
+	}
+
+	// 4) Copy bytes out
+	Out_Buffer.Empty();
+	Out_Buffer.SetNumUninitialized(static_cast<int32>(TotalSize));
+	FMemory::Memcpy(Out_Buffer.GetData(), View, TotalSize);
+
+	// 5) Cleanup
+	UnmapViewOfFile(View);
+	CloseHandle(Mapping);
+
+	Out_Code = TEXT("External mapped file read successfully.");
+	return true;
+
+#else
+	return false;
+#endif
+}
+
+bool UVirtualFileSubsystem::GetFiles(TMap<FString, FVFM_Export>& Out_Infos, FString& Out_Code)
+{
 	if (this->VirtualFileMaps.IsEmpty())
 	{
 		Out_Code = TEXT("No files in the virtual file map.");
 		return false;
 	}
 
-	if (!this->VirtualFileMaps.Contains(FileName))
-	{
-		Out_Code = TEXT("File does not exist in the virtual file map.");
-		return false;
-	}
+	Out_Infos.Empty();
 
-	FFileMapHandles& FileHandle = this->VirtualFileMaps[FileName];
-
-	if (FileHandle.MappedMemory && FileHandle.MappedSize > 0)
+	for (const TPair<FString, FVFM_Store> Each_File : this->VirtualFileMaps)
 	{
-		TArray<uint8> TempBuffer;
-		TempBuffer.SetNumUninitialized(FileHandle.MappedSize);
-		FMemory::Memcpy(TempBuffer.GetData(), FileHandle.MappedMemory, FileHandle.MappedSize);
+		const FString Each_File_Name = Each_File.Key;
 		
-		Out_Buffer.Empty();
-		Out_Buffer = TempBuffer;
+		FVFM_Export Each_File_Info;
+		Each_File_Info.MappedSize = Each_File.Value.MappedSize;
+		Each_File_Info.Headers = Each_File.Value.Headers;
 
-		Out_Code = TEXT("File retrieved successfully.");
-		return true;
+		Each_File_Info.Buffer.SetNumUninitialized(Each_File.Value.MappedSize);
+		FMemory::Memcpy(Each_File_Info.Buffer.GetData(), Each_File.Value.MappedMemory, Each_File.Value.MappedSize);
+
+		Out_Infos.Add(Each_File_Name, Each_File_Info);
 	}
-
-	Out_Code = TEXT("File is not mapped or has no data.");
-	return false;
-#else
-	return false;
-#endif // _WIN64
-}
-
-bool UVirtualFileSubsystem::GetFileHeader(TMap<FString, FString>& Out_Headers, FString& Out_Code, FString FileName)
-{
-#ifdef _WIN64
-	if (FileName.IsEmpty())
-	{
-		Out_Code = TEXT("FileName is empty");
-		return false;
-	}
-
-	if (this->VirtualFileMaps.IsEmpty())
-	{
-		Out_Code = TEXT("No files in the virtual file map.");
-		return false;
-	}
-
-	if (!this->VirtualFileMaps.Contains(FileName))
-	{
-		Out_Code = TEXT("File does not exist in the virtual file map.");
-		return false;
-	}
-
-	FFileMapHandles& FileHandle = this->VirtualFileMaps[FileName];
-
-	if (FileHandle.Header.JsonObject.IsValid())
-	{
-		TMap<FString, FString> TempHeaders;
-
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Header : FileHandle.Header.JsonObject->Values)
-		{
-			const FString Key = Header.Key;
-			const FString Value = Header.Value->AsString();
-			TempHeaders.Add(Key, Value);
-		}
-
-		Out_Headers = TempHeaders;
-		Out_Code = TEXT("File header retrieved successfully.");
-		return true;
-	}
-
-	return false;
-#else
-	return false;
-#endif // _WIN64
-}
-
-bool UVirtualFileSubsystem::GetFileNames(TArray<FString>& Out_Names, FString& Out_Code)
-{
-#ifdef _WIN64
-	if (this->VirtualFileMaps.IsEmpty())
-	{
-		return false;
-	}
-
-	TArray<FString> TempNames;
-	this->VirtualFileMaps.GetKeys(TempNames);
-
-	Out_Names.Empty();
-	Out_Names = TempNames;
 
 	return true;
-#else
-	return false;
-#endif // _WIN64
 }

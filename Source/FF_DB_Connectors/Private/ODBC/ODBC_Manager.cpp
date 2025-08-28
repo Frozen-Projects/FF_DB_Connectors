@@ -161,6 +161,8 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 		return 0;
 	}
 
+	RetCode = SQLSetStmtAttr(SQL_Handle, SQL_ATTR_NOSCAN, (SQLPOINTER)SQL_NOSCAN_ON, 0);
+
 	RetCode = SQLExecute(SQL_Handle);
 
 	if (!SQL_SUCCEEDED(RetCode))
@@ -200,54 +202,23 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 			FODBC_QueryHandler Temp_Handler;
 			const int32 ExecuteResult = this->ExecuteQuery(Temp_Handler, Out_Code, SQL_Query);
 
-			switch (ExecuteResult)
-			{
-				case 0:
-
-					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code]()
-						{
-							DelegateExecute.ExecuteIfBound(0, Out_Code, nullptr, 0);
-						}
-					);
-
-					return;
-
-				case 1:
-				
-					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, Temp_Handler]()
-						{
-							UODBC_Result* ResultObject = NewObject<UODBC_Result>();
-							ResultObject->SetQueryResult(Temp_Handler);
-
-							DelegateExecute.ExecuteIfBound(1, Out_Code, ResultObject, Temp_Handler.Affected_Rows);
-						}
-					);
-
-					return;
-
-				case 2:
+			AsyncTask(ENamedThreads::GameThread, [this, DelegateExecute, Out_Code, Temp_Handler, ExecuteResult]()
 				{
-					const int64 Affected_Rows = Temp_Handler.Affected_Rows;
+					if (ExecuteResult == 1)
+					{
+						UODBC_Result* ResultObject = NewObject<UODBC_Result>();
+						ResultObject->SetQueryResult(Temp_Handler);
 
-					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code, Affected_Rows]()
-						{
-							DelegateExecute.ExecuteIfBound(2, Out_Code, nullptr, Affected_Rows);
-						}
-					);
+						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, ResultObject, Temp_Handler.Affected_Rows);
+					}
 
-					return;
+					else
+					{
+						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, nullptr, 0);
+					}
+
 				}
-
-				default:
-
-					AsyncTask(ENamedThreads::GameThread, [DelegateExecute, Out_Code]()
-						{
-							DelegateExecute.ExecuteIfBound(0, Out_Code, nullptr, 0);
-						}
-					);
-
-					return;
-			}
+			);
 		}
 	);
 }
