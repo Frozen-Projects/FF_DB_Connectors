@@ -31,6 +31,10 @@ public class FF_DB_Connectors : ModuleRules
                 "uuid.lib",
             }
             );
+
+            // For PostgreSQL support.
+            PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "ThirdParty", "libpqxx", "Win64", "include"));
+            PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "ThirdParty", "libpqxx", "Win64", "lib", "pqxx.lib"));
         }
 
         if (Target.Platform == UnrealTargetPlatform.Android)
