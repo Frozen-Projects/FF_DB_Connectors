@@ -18,9 +18,8 @@ bool UODBC_Result::SetQueryResult(FODBC_QueryHandler In_Handler)
         return false;
     }
 
-	this->ResultGuard.Lock();
+	FScopeLock Lock(&this->ResultGuard);
     this->QueryHandler = In_Handler;
-	this->ResultGuard.Unlock();
 
     return true;
 }

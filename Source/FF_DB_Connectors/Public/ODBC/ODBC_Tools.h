@@ -44,7 +44,46 @@ public:
 	UPROPERTY(BlueprintReadOnly, meta = (ToolTip = ""))
 	FString Note;
 
+	bool operator == (const FODBC_DataValue& Other) const
+	{
+		return String == Other.String && Integer32 == Other.Integer32 && Integer64 == Other.Integer64 && Double == Other.Double && Boolean == Other.Boolean && DateTime == Other.DateTime && DataType == Other.DataType && DataTypeName == Other.DataTypeName && ColumnName == Other.ColumnName && Preview == Other.Preview && Note == Other.Note;
+	}
+
+	bool operator != (const FODBC_DataValue& Other) const
+	{
+		return !(*this == Other);
+	}
 };
+
+FORCEINLINE uint32 GetTypeHash(const FODBC_DataValue& Key)
+{
+	uint32 Hash_String = GetTypeHash(Key.String);
+	uint32 Hash_Integer32 = GetTypeHash(Key.Integer32);
+	uint32 Hash_Integer64 = GetTypeHash(Key.Integer64);
+	uint32 Hash_Double = GetTypeHash(Key.Double);
+	uint32 Hash_Boolean = GetTypeHash(Key.Boolean);
+	uint32 Hash_DateTime = GetTypeHash(Key.DateTime);
+	uint32 Hash_DataType = GetTypeHash(Key.DataType);
+	uint32 Hash_DataTypeName = GetTypeHash(Key.DataTypeName);
+	uint32 Hash_ColumnName = GetTypeHash(Key.ColumnName);
+	uint32 Hash_Preview = GetTypeHash(Key.Preview);
+	uint32 Hash_Note = GetTypeHash(Key.Note);
+
+	uint32 GenericHash;
+	FMemory::Memset(&GenericHash, 0, sizeof(uint32));
+	GenericHash = HashCombine(GenericHash, Hash_String);
+	GenericHash = HashCombine(GenericHash, Hash_Integer32);
+	GenericHash = HashCombine(GenericHash, Hash_Integer64);
+	GenericHash = HashCombine(GenericHash, Hash_Double);
+	GenericHash = HashCombine(GenericHash, Hash_Boolean);
+	GenericHash = HashCombine(GenericHash, Hash_DateTime);
+	GenericHash = HashCombine(GenericHash, Hash_DataType);
+	GenericHash = HashCombine(GenericHash, Hash_DataTypeName);
+	GenericHash = HashCombine(GenericHash, Hash_ColumnName);
+	GenericHash = HashCombine(GenericHash, Hash_Preview);
+	GenericHash = HashCombine(GenericHash, Hash_Note);
+	return GenericHash;
+}
 
 USTRUCT(BlueprintType)
 struct FF_DB_CONNECTORS_API FODBC_ColumnInfo
@@ -70,7 +109,37 @@ public:
 
 	UPROPERTY(BlueprintReadOnly)
 	int32 Column_Size = 0;
+
+	bool operator == (const FODBC_ColumnInfo& Other) const
+	{
+		return Column_Name == Other.Column_Name && NameLenght == Other.NameLenght && DataType == Other.DataType && DecimalDigits == Other.DecimalDigits && bIsNullable == Other.bIsNullable && Column_Size == Other.Column_Size;
+	}
+
+	bool operator != (const FODBC_ColumnInfo& Other) const
+	{
+		return !(*this == Other);
+	}
 };
+
+FORCEINLINE uint32 GetTypeHash(const FODBC_ColumnInfo& Key)
+{
+	uint32 Hash_Column_Name = GetTypeHash(Key.Column_Name);
+	uint32 Hash_NameLenght = GetTypeHash(Key.NameLenght);
+	uint32 Hash_DataType = GetTypeHash(Key.DataType);
+	uint32 Hash_DecimalDigits = GetTypeHash(Key.DecimalDigits);
+	uint32 Hash_bIsNullable = GetTypeHash(Key.bIsNullable);
+	uint32 Hash_Column_Size = GetTypeHash(Key.Column_Size);
+
+	uint32 GenericHash;
+	FMemory::Memset(&GenericHash, 0, sizeof(uint32));
+	GenericHash = HashCombine(GenericHash, Hash_Column_Name);
+	GenericHash = HashCombine(GenericHash, Hash_NameLenght);
+	GenericHash = HashCombine(GenericHash, Hash_DataType);
+	GenericHash = HashCombine(GenericHash, Hash_DecimalDigits);
+	GenericHash = HashCombine(GenericHash, Hash_bIsNullable);
+	GenericHash = HashCombine(GenericHash, Hash_Column_Size);
+	return GenericHash;
+}
 
 USTRUCT()
 struct FF_DB_CONNECTORS_API FODBC_QueryHandler

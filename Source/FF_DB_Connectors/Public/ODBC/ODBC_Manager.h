@@ -23,6 +23,8 @@ class FF_DB_CONNECTORS_API AODBC_Manager : public AActor
 
 private:
 
+	mutable FCriticalSection DB_Guard;
+
 	FString ConnectionString;
 	SQLHENV SQL_Handle_Environment = NULL;
 	SQLHDBC SQL_Handle_Connection = NULL;
@@ -45,6 +47,11 @@ public:
 	// Called every frame.
 	virtual void Tick(float DeltaTime) override;
 
+	// Call this in FRunnableThread::Run() to execute a query. If there is a result, go to game thread and create a UODBC_Result object.
+	static int32 ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_Code, SQLHDBC In_Connection, FCriticalSection* In_Guard, const FString& SQL_Query);
+
+	virtual SQLHDBC GetConnectionHandle();
+
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
 	virtual bool CreateConnectionString(FString& Out_ConStr, FString ODBC_Source, FString Username, FString Password, FString ServerInstance = "SQLEXPRESS");
 
@@ -53,9 +60,6 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
 	virtual void Disconnect();
-
-	// Call this in FRunnableThread::Run() to execute a query. If there is a result, go to game thread and create a UODBC_Result object.
-	virtual int32 ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_Code, const FString& SQL_Query);
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
 	virtual void ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query);

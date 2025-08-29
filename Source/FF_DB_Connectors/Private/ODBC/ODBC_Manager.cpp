@@ -130,21 +130,23 @@ void AODBC_Manager::Disconnect()
 	}
 }
 
-int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_Code, const FString& SQL_Query)
+int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_Code, SQLHDBC In_Connection, FCriticalSection* In_Guard, const FString& SQL_Query)
 {
+	FScopeLock Lock(In_Guard);
+
 	if (SQL_Query.IsEmpty())
 	{
 		return 0;
 	}
 
-	if (!this->SQL_Handle_Connection)
+	if (!In_Connection)
 	{
 		Out_Code = "FF Microsoft ODBC : Connection handle is not valid !";
 		return 0;
 	}
 
 	SQLHSTMT SQL_Handle;
-	SQLRETURN RetCode = SQLAllocStmt(this->SQL_Handle_Connection, &SQL_Handle);
+	SQLRETURN RetCode = SQLAllocStmt(In_Connection, &SQL_Handle);
 
 	if (!SQL_SUCCEEDED(RetCode))
 	{
@@ -176,22 +178,20 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	Temp_Handler.SentQuery = SQL_Query;
 	const int32 RecordResult = Temp_Handler.Record_Result(Out_Code);
 
-	switch (RecordResult)
+	if (RecordResult != 1)
 	{
-		case 0: 
-			return 0;
-		
-		case 1: 
-			Out_Handler = Temp_Handler;
-			return 1;
-		
-		case 2: 
-			Out_Handler = Temp_Handler;
-			return 2;
-
-		default:
-			return 0;
+		SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
+		SQL_Handle = nullptr;
 	}
+
+	Out_Handler = RecordResult == 0 ? FODBC_QueryHandler() : Temp_Handler;
+	Out_Code = RecordResult == 0 ? "FF Microsoft ODBC : There was a problem while recording results !" : "FF Microsoft ODBC : Query executed successfully !";
+	return RecordResult;
+}
+
+SQLHDBC AODBC_Manager::GetConnectionHandle()
+{
+	return this->SQL_Handle_Connection;
 }
 
 void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query)
@@ -200,7 +200,7 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 		{
 			FString Out_Code;
 			FODBC_QueryHandler Temp_Handler;
-			const int32 ExecuteResult = this->ExecuteQuery(Temp_Handler, Out_Code, SQL_Query);
+			const int32 ExecuteResult = AODBC_Manager::ExecuteQuery(Temp_Handler, Out_Code, this->SQL_Handle_Connection, &this->DB_Guard, SQL_Query);
 
 			AsyncTask(ENamedThreads::GameThread, [this, DelegateExecute, Out_Code, Temp_Handler, ExecuteResult]()
 				{
@@ -214,7 +214,7 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 
 					else
 					{
-						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, nullptr, 0);
+						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, nullptr, Temp_Handler.Affected_Rows);
 					}
 
 				}

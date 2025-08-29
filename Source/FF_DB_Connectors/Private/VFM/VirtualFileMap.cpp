@@ -87,7 +87,6 @@ bool UVirtualFileSubsystem::FileAddCallback(FString& Out_Code, FString FileName,
 	}
 
 	this->VirtualFileMaps.Add(FileName, FileStruct);
-	FScopeLock Unlock(&this->VFM_Guard);
 
 	Out_Code = TEXT("File added successfully.");
 	return true;
@@ -123,8 +122,6 @@ void UVirtualFileSubsystem::FileRemoveCallback(FString FileName)
 		this->VirtualFileMaps.Remove(FileName);
 	}
 
-	FScopeLock Unlock(&this->VFM_Guard);
-
 #else
 	return;
 #endif // _WIN64
@@ -157,7 +154,6 @@ void UVirtualFileSubsystem::CleanUpFileHandles()
 	}
 
 	this->VirtualFileMaps.Empty();
-	FScopeLock Unlock(&this->VFM_Guard);
 
 #else
 	return;

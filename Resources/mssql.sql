@@ -5,3 +5,5 @@ UPDATE ue5_test.dbo.Table_1 SET notes = 'note sample' WHERE id=2
 INSERT INTO ue5_test.dbo.Table_1 (id, name, address, phone, exprience, notes, last_login, membership_date) VALUES (99, 'John Doe', 'New York', '+410104952147', 5.5, 'Developer', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 
 DELETE FROM ue5_test.dbo.Table_1 WHERE id >= 6
+
+WITH CTE_TEST AS (SELECT id, name, address, phone, exprience FROM Table_1 WHERE id BETWEEN 1 and 4) select * from CTE_TEST WHERE id < 4
