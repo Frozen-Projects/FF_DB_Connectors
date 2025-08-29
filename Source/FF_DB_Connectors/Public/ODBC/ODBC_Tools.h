@@ -161,8 +161,6 @@ public:
 	TMap<FVector2D, FODBC_DataValue> Data_Pool;
 
 	bool GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32 ColumnIndex);
-
-	// 0 = Failed, 1 = Success , 2 = Update Only.
-	int32 Record_Result(FString& Out_Code);
+	bool Record_Result(FString& Out_Code);
 
 };

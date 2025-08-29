@@ -91,12 +91,12 @@ FString FODBC_QueryHandler::GetChunckData(int32 SQL_Column_Index)
     return Accumulated;
 }
 
-int32 FODBC_QueryHandler::Record_Result(FString& Out_Code)
+bool FODBC_QueryHandler::Record_Result(FString& Out_Code)
 {
     if (!this->SQL_Handle)
     {
         Out_Code = "FF Microsoft ODBC : Statement handle is not valid !";
-        return 0;
+        return false;
     }
 
     SQLRETURN RetCode = 0;
@@ -107,28 +107,23 @@ int32 FODBC_QueryHandler::Record_Result(FString& Out_Code)
 
     if (!SQL_SUCCEEDED(RetCode))
     {
-        Out_Code = "FF Microsoft ODBC : Unable to get affected rows count !";
-        return 0;
-    }
+        SQLFreeHandle(SQL_HANDLE_STMT, this->SQL_Handle);
+        this->SQL_Handle = NULL;
 
-    this->Affected_Rows = Temp_AffectedRows < 0 ? 0 : Temp_AffectedRows;
+        Out_Code = "FF Microsoft ODBC : Unable to get affected rows count !";
+        return false;
+    }
 
     SQLSMALLINT Temp_ColumnNumber;
     RetCode = SQLNumResultCols(this->SQL_Handle, &Temp_ColumnNumber);
 
     if (!SQL_SUCCEEDED(RetCode))
     {
-        Out_Code = "FF Microsoft ODBC : Unable to get column count !";
-        return 0;
-    }
-
-    if (Temp_ColumnNumber == 0)
-    {
         SQLFreeHandle(SQL_HANDLE_STMT, this->SQL_Handle);
         this->SQL_Handle = NULL;
 
-        Out_Code = "FF Microsoft ODBC : This query doesn't have result. It is for update only !";
-        return 2;
+        Out_Code = "FF Microsoft ODBC : Unable to get column count !";
+        return false;
     }
 
     try
@@ -151,8 +146,6 @@ int32 FODBC_QueryHandler::Record_Result(FString& Out_Code)
                         Array_MetaData.Add(EachMetaData);
                     }
                 }
-
-                const FVector2D Position = FVector2D(Column_Index, Index_Row);
 
                 FODBC_DataValue EachData;
 
@@ -257,6 +250,7 @@ int32 FODBC_QueryHandler::Record_Result(FString& Out_Code)
                     }
                 }
 
+                const FVector2D Position = FVector2D(Column_Index, Index_Row);
                 Temp_Data_Pool.Add(Position, EachData);
             }
 
@@ -266,14 +260,18 @@ int32 FODBC_QueryHandler::Record_Result(FString& Out_Code)
         this->Data_Pool = Temp_Data_Pool;
         this->Count_Rows = Index_Row;
         this->Count_Columns = Temp_ColumnNumber;
+        this->Affected_Rows = Temp_AffectedRows < 0 ? 0 : Temp_AffectedRows;
 
         Out_Code = "FF Microsoft ODBC : Result successfuly recorded !";
-        return 1;
+        return true;
     }
 
     catch (const std::exception& Exception)
     {
+        SQLFreeHandle(SQL_HANDLE_STMT, this->SQL_Handle);
+        this->SQL_Handle = NULL;
+
         Out_Code = Exception.what();
-        return 0;
+        return false;
     }
 }

@@ -176,17 +176,37 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	FODBC_QueryHandler Temp_Handler;
 	Temp_Handler.SQL_Handle = SQL_Handle;
 	Temp_Handler.SentQuery = SQL_Query;
-	const int32 RecordResult = Temp_Handler.Record_Result(Out_Code);
 
-	if (RecordResult != 1)
+	// It already cleans up the statement handle if it fails.
+	bool RecordResult = Temp_Handler.Record_Result(Out_Code);
+
+	if (!RecordResult)
 	{
-		SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
-		SQL_Handle = nullptr;
+		Out_Handler = FODBC_QueryHandler();
+		Out_Code = "FF Microsoft ODBC : There was a problem while recording results !";
+		return 0;
 	}
 
-	Out_Handler = RecordResult == 0 ? FODBC_QueryHandler() : Temp_Handler;
-	Out_Code = RecordResult == 0 ? "FF Microsoft ODBC : There was a problem while recording results !" : "FF Microsoft ODBC : Query executed successfully !";
-	return RecordResult;
+	else if (Temp_Handler.Count_Columns > 0)
+	{
+		Out_Handler = Temp_Handler;
+		Out_Code = "FF Microsoft ODBC : Query executed successfully !";
+		return 1;
+	}
+
+	else if (Temp_Handler.Affected_Rows > 0)
+	{
+		Out_Handler = Temp_Handler;
+		Out_Code = "FF Microsoft ODBC : Query executed successfully but it is update only !";
+		return 2;
+	}
+
+	else
+	{
+		Out_Handler = FODBC_QueryHandler();
+		Out_Code = "FF Microsoft ODBC : Query executed successfully but there is no result or affected columns !";
+		return 0;
+	}
 }
 
 SQLHDBC AODBC_Manager::GetConnectionHandle()
