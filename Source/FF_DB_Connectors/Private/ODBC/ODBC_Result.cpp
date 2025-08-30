@@ -2,22 +2,11 @@
 
 void UODBC_Result::BeginDestroy()
 {
-    if (this->QueryHandler.SQL_Handle)
-    {
-        SQLFreeHandle(SQL_HANDLE_STMT, this->QueryHandler.SQL_Handle);
-        this->QueryHandler.SQL_Handle = NULL;
-	}
-
     Super::BeginDestroy();
 }
 
 bool UODBC_Result::SetQueryResult(FODBC_QueryHandler In_Handler)
 {
-    if (!In_Handler.SQL_Handle)
-    {
-        return false;
-    }
-
 	FScopeLock Lock(&this->ResultGuard);
     this->QueryHandler = In_Handler;
 
@@ -26,17 +15,17 @@ bool UODBC_Result::SetQueryResult(FODBC_QueryHandler In_Handler)
 
 int64 UODBC_Result::GetColumnNumber()
 {
-    return this->QueryHandler.Count_Columns;
+    return this->QueryHandler.ResultSet.Count_Columns;
 }
 
 int64 UODBC_Result::GetRowNumber()
 {
-    return this->QueryHandler.Count_Rows;
+    return this->QueryHandler.ResultSet.Count_Rows;
 }
 
 int64 UODBC_Result::GetAffectedRows()
 {
-    return this->QueryHandler.Affected_Rows;
+    return this->QueryHandler.ResultSet.Affected_Rows;
 }
 
 FString UODBC_Result::GetQueryString()
@@ -44,48 +33,28 @@ FString UODBC_Result::GetQueryString()
     return this->QueryHandler.SentQuery;
 }
 
-bool UODBC_Result::GetColumnInfos(FString& Out_Code, TArray<FODBC_ColumnInfo>& Out_MetaData)
+bool UODBC_Result::GetColumnInfos(FString& Out_Code, TArray<FODBC_ColumnInfo>& Out_Infos)
 {
-    if (!this->QueryHandler.SQL_Handle)
+    if (this->QueryHandler.ResultSet.Column_Infos.IsEmpty())
     {
-        Out_Code = "FF Microsoft ODBC : Statement handle is not valid !";
+		Out_Code = "FF Microsoft ODBC : There is no column info !";
         return false;
     }
 
-    SQLSMALLINT Temp_Count_Column = 0;
-    SQLRETURN RetCode = SQLNumResultCols(this->QueryHandler.SQL_Handle, &Temp_Count_Column);
-
-    if (Temp_Count_Column == 0)
-    {
-        Out_Code = "FF Microsoft ODBC : There is no column to get metadata !";
-        return false;
-    }
-
-    TArray<FODBC_ColumnInfo> Array_MetaData;
-
-    for (int32 Index_Column_Raw = 0; Index_Column_Raw < Temp_Count_Column; Index_Column_Raw++)
-    {
-        FODBC_ColumnInfo EachMetaData;
-        if (this->QueryHandler.GetEachColumnInfo(EachMetaData, Index_Column_Raw + 1))
-        {
-            Array_MetaData.Add(EachMetaData);
-        }
-    }
-
-    Out_MetaData = Array_MetaData;
+	Out_Infos = this->QueryHandler.ResultSet.Column_Infos;
     Out_Code = "FF Microsoft ODBC : All metadata got successfully !";
     return true;
 }
 
 bool UODBC_Result::GetColumnFromIndex(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values, int64 Index_Column)
 {
-    if (this->QueryHandler.Data_Pool.IsEmpty())
+    if (this->QueryHandler.ResultSet.Data_Pool.IsEmpty())
     {
         Out_Code = "FF Microsoft ODBC : Data pool is empty !";
         return false;
     }
 
-    if (Index_Column < 0 || Index_Column >= this->QueryHandler.Count_Columns)
+    if (Index_Column < 0 || Index_Column >= this->QueryHandler.ResultSet.Count_Columns)
     {
         Out_Code = "FF Microsoft ODBC : Given column index is out of data pool's range !";
         return false;
@@ -93,17 +62,17 @@ bool UODBC_Result::GetColumnFromIndex(FString& Out_Code, TArray<FODBC_DataValue>
 
     TArray<FODBC_DataValue> Temp_Array;
 
-    for (int32 Index_Row = 0; Index_Row < this->QueryHandler.Count_Rows; Index_Row++)
+    for (int32 Index_Row = 0; Index_Row < this->QueryHandler.ResultSet.Count_Rows; Index_Row++)
     {
         const FVector2D Position = FVector2D(Index_Column, Index_Row);
 
-        if (!this->QueryHandler.Data_Pool.Contains(Position))
+        if (!this->QueryHandler.ResultSet.Data_Pool.Contains(Position))
         {
             Out_Code = "FF Microsoft ODBC : Target position couldn't be found ! : " + Position.ToString();
             return false;
         }
 
-        FODBC_DataValue* EachData = this->QueryHandler.Data_Pool.Find(Position);
+        FODBC_DataValue* EachData = this->QueryHandler.ResultSet.Data_Pool.Find(Position);
 
         if (!EachData)
         {
@@ -121,34 +90,20 @@ bool UODBC_Result::GetColumnFromIndex(FString& Out_Code, TArray<FODBC_DataValue>
 
 bool UODBC_Result::GetColumnFromName(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values, FString ColumName)
 {
-    if (this->QueryHandler.Count_Columns == 0)
+    if (this->QueryHandler.ResultSet.Count_Columns == 0)
     {
         return false;
     }
 
-    int32 TargetIndex = 0;
-    for (int32 Index_Column_Raw = 0; Index_Column_Raw < this->QueryHandler.Count_Columns; Index_Column_Raw++)
+	int64 TargetIndex = -1;
+
+    for (int64 Column_Index = 0; Column_Index < this->QueryHandler.ResultSet.Count_Columns; Column_Index++)
     {
-        const int32 Index_Column = Index_Column_Raw + 1;
-        SQLCHAR Column_Name[256];
-        SQLSMALLINT NameLen, DataType, DecimalDigits, Nullable;
-        SQLULEN Column_Size;
+		const FODBC_ColumnInfo EachColumnInfo = this->QueryHandler.ResultSet.Column_Infos[Column_Index];
 
-        SQLRETURN RetCode = SQLDescribeColA(this->QueryHandler.SQL_Handle, Index_Column, Column_Name, 256, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
-
-        if (!SQL_SUCCEEDED(RetCode))
+        if (EachColumnInfo.Column_Name.Equals(ColumName))
         {
-            Out_Code = "FF Microsoft ODBC : There was a problem while getting index of target column !";
-            return false;
-        }
-
-        FString EachName = UTF8_TO_TCHAR((const char*)Column_Name);
-        EachName.TrimEndInline();
-
-        if (EachName == ColumName)
-        {
-            TargetIndex = Index_Column_Raw;
-            break;
+            TargetIndex = Column_Index;
         }
     }
 
@@ -157,25 +112,25 @@ bool UODBC_Result::GetColumnFromName(FString& Out_Code, TArray<FODBC_DataValue>&
 
 bool UODBC_Result::GetSingleData(FString& Out_Code, FODBC_DataValue& Out_Value, FVector2D Position)
 {
-    if (this->QueryHandler.Data_Pool.IsEmpty())
+    if (this->QueryHandler.ResultSet.Data_Pool.IsEmpty())
     {
         Out_Code = "FF Microsoft ODBC : Data pool is empty !";
         return false;
     }
 
-    if (Position.X < 0 || Position.Y < 0 || Position.X >= this->QueryHandler.Count_Columns || Position.Y >= this->QueryHandler.Count_Rows)
+    if (Position.X < 0 || Position.Y < 0 || Position.X >= this->QueryHandler.ResultSet.Count_Columns || Position.Y >= this->QueryHandler.ResultSet.Count_Rows)
     {
         Out_Code = "FF Microsoft ODBC : Given position is out of data pool's range !";
         return false;
     }
 
-    if (!this->QueryHandler.Data_Pool.Contains(Position))
+    if (!this->QueryHandler.ResultSet.Data_Pool.Contains(Position))
     {
         Out_Code = "FF Microsoft ODBC : Target position couldn't be found ! : " + Position.ToString();
         return false;
     }
 
-    FODBC_DataValue* DataValue = this->QueryHandler.Data_Pool.Find(Position);
+    FODBC_DataValue* DataValue = this->QueryHandler.ResultSet.Data_Pool.Find(Position);
 
     if (!DataValue)
     {
@@ -189,13 +144,13 @@ bool UODBC_Result::GetSingleData(FString& Out_Code, FODBC_DataValue& Out_Value, 
 
 bool UODBC_Result::GetRow(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values, int64 Index_Row)
 {
-    if (this->QueryHandler.Data_Pool.IsEmpty())
+    if (this->QueryHandler.ResultSet.Data_Pool.IsEmpty())
     {
         Out_Code = "FF Microsoft ODBC : Data pool is empty !";
         return false;
     }
 
-    if (Index_Row < 0 || Index_Row >= this->QueryHandler.Count_Rows)
+    if (Index_Row < 0 || Index_Row >= this->QueryHandler.ResultSet.Count_Rows)
     {
         Out_Code = "FF Microsoft ODBC : Given row index is out of data pool's range !";
         return false;
@@ -203,17 +158,17 @@ bool UODBC_Result::GetRow(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values
 
     TArray<FODBC_DataValue> Temp_Array;
 
-    for (int32 Index_Column = 0; Index_Column < this->QueryHandler.Count_Columns; Index_Column++)
+    for (int32 Index_Column = 0; Index_Column < this->QueryHandler.ResultSet.Count_Columns; Index_Column++)
     {
         const FVector2D Position = FVector2D(Index_Column, Index_Row);
 
-        if (!this->QueryHandler.Data_Pool.Contains(Position))
+        if (!this->QueryHandler.ResultSet.Data_Pool.Contains(Position))
         {
             Out_Code = "FF Microsoft ODBC : Target position couldn't be found ! : " + Position.ToString();
             return false;
         }
 
-        FODBC_DataValue* EachData = this->QueryHandler.Data_Pool.Find(Position);
+        FODBC_DataValue* EachData = this->QueryHandler.ResultSet.Data_Pool.Find(Position);
 
         if (!EachData)
         {

@@ -142,25 +142,40 @@ FORCEINLINE uint32 GetTypeHash(const FODBC_ColumnInfo& Key)
 }
 
 USTRUCT()
+struct FF_DB_CONNECTORS_API FODBC_ResultSet
+{
+	GENERATED_BODY()
+
+public:
+
+	int64 Affected_Rows = 0;
+	int64 Count_Rows = 0;
+	int64 Count_Columns = 0;
+	TArray<FODBC_ColumnInfo> Column_Infos;
+	TMap<FVector2D, FODBC_DataValue> Data_Pool;
+};
+
+USTRUCT()
 struct FF_DB_CONNECTORS_API FODBC_QueryHandler
 {
 	GENERATED_BODY()
 
 private:
 
+	// This handle is temporary. It will be valid only during the "Record_Result" function call.
+	SQLHSTMT SQL_Handle = nullptr;
+
 	FString GetChunckData(int32 SQL_Column_Index);
 
 public:
 
-	SQLHSTMT SQL_Handle = nullptr;
-
 	FString SentQuery;
-	int64 Affected_Rows = 0;
-	int64 Count_Rows = 0;
-	int64 Count_Columns = 0;
-	TMap<FVector2D, FODBC_DataValue> Data_Pool;
+	FODBC_ResultSet ResultSet;
 
+	bool SetSQLHandle(SQLHSTMT In_SQL_Handle);
 	bool GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32 ColumnIndex);
 	bool Record_Result(FString& Out_Code);
+
+	~FODBC_QueryHandler();
 
 };

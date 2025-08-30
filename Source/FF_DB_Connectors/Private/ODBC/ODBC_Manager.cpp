@@ -174,27 +174,29 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	}
 
 	FODBC_QueryHandler Temp_Handler;
-	Temp_Handler.SQL_Handle = SQL_Handle;
 	Temp_Handler.SentQuery = SQL_Query;
 
-	// It already cleans up the statement handle if it fails.
-	bool RecordResult = Temp_Handler.Record_Result(Out_Code);
+	bool bResult = Temp_Handler.SetSQLHandle(SQL_Handle);
 
-	if (!RecordResult)
+	// It already cleans up the statement handle after its finish.
+	bResult = Temp_Handler.Record_Result(Out_Code);
+
+	if (!bResult)
 	{
+		// Out_Code is already set in Record_Result function.
+
 		Out_Handler = FODBC_QueryHandler();
-		Out_Code = "FF Microsoft ODBC : There was a problem while recording results !";
 		return 0;
 	}
 
-	else if (Temp_Handler.Count_Columns > 0)
+	else if (Temp_Handler.ResultSet.Count_Columns > 0)
 	{
 		Out_Handler = Temp_Handler;
 		Out_Code = "FF Microsoft ODBC : Query executed successfully !";
 		return 1;
 	}
 
-	else if (Temp_Handler.Affected_Rows > 0)
+	else if (Temp_Handler.ResultSet.Affected_Rows > 0)
 	{
 		Out_Handler = Temp_Handler;
 		Out_Code = "FF Microsoft ODBC : Query executed successfully but it is update only !";
@@ -229,12 +231,12 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 						UODBC_Result* ResultObject = NewObject<UODBC_Result>();
 						ResultObject->SetQueryResult(Temp_Handler);
 
-						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, ResultObject, Temp_Handler.Affected_Rows);
+						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, ResultObject, Temp_Handler.ResultSet.Affected_Rows);
 					}
 
 					else
 					{
-						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, nullptr, Temp_Handler.Affected_Rows);
+						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, nullptr, Temp_Handler.ResultSet.Affected_Rows);
 					}
 
 				}

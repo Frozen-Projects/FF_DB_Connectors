@@ -39,7 +39,7 @@ public:
 	virtual FString GetQueryString();
 
 	UFUNCTION(BlueprintCallable)
-	virtual bool GetColumnInfos(FString& Out_Code, TArray<FODBC_ColumnInfo>& Out_ColumnInfo);
+	virtual bool GetColumnInfos(FString& Out_Code, TArray<FODBC_ColumnInfo>& Out_Infos);
 
 	UFUNCTION(BlueprintCallable)
 	virtual bool GetColumnFromIndex(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values, int64 Index_Column);
