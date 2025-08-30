@@ -26,6 +26,21 @@ void AODBC_Manager::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
+SQLHDBC AODBC_Manager::GetConnectionHandle()
+{
+	return this->SQL_Handle_Connection;
+}
+
+FCriticalSection* AODBC_Manager::GetGuard()
+{
+	return &this->DB_Guard;
+}
+
+FString AODBC_Manager::GetConnectionString()
+{
+	return this->ConnectionString;
+}
+
 bool AODBC_Manager::CreateConnectionString(FString& Out_ConStr, FString ODBC_Source, FString Username, FString Password, FString ServerInstance)
 {
 	if (ODBC_Source.IsEmpty())
@@ -211,11 +226,6 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	}
 }
 
-SQLHDBC AODBC_Manager::GetConnectionHandle()
-{
-	return this->SQL_Handle_Connection;
-}
-
 void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query)
 {
 	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, DelegateExecute, SQL_Query]()
@@ -243,9 +253,4 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 			);
 		}
 	);
-}
-
-FString AODBC_Manager::GetConnectionString()
-{
-	return this->ConnectionString;
 }
