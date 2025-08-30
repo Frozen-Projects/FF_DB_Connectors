@@ -194,10 +194,24 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 {
 	SQLHSTMT SQL_Handle = AODBC_Manager::ExecuteQuery_Internal(Out_Code, In_Connection, In_Guard, SQL_Query);
 
+	if (!SQL_Handle)
+	{
+		// Out_Code is already set in ExecuteQuery_Internal function.
+		Out_Handler = FODBC_QueryHandler();
+		return 0;
+	}
+
 	FODBC_QueryHandler Temp_Handler;
 	Temp_Handler.SentQuery = SQL_Query;
 
 	bool bResult = Temp_Handler.SetSQLHandle(SQL_Handle);
+
+	if (!bResult)
+	{
+		Out_Code = "FF Microsoft ODBC : There was a problem while setting statement handle to query handler !";
+		Out_Handler = FODBC_QueryHandler();
+		return 0;
+	}
 
 	// It already cleans up the statement handle after its finish.
 	bResult = Temp_Handler.Record_Result(Out_Code);
@@ -205,7 +219,6 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	if (!bResult)
 	{
 		// Out_Code is already set in Record_Result function.
-
 		Out_Handler = FODBC_QueryHandler();
 		return 0;
 	}
@@ -254,84 +267,140 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 					{
 						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, nullptr, Temp_Handler.ResultSet.Affected_Rows);
 					}
-
 				}
 			);
 		}
 	);
 }
 
-void AODBC_Manager::LearnColumns(FDelegate_ODBC_CI DelegateColumnInfos, const FString& SQL_Query)
+bool AODBC_Manager::LearnColumns_Internal(TArray<FODBC_ColumnInfo>& Out_ColumnInfos, FString& Out_Code, const FString& SQL_Query)
+{
+	SQLHSTMT SQL_Handle = AODBC_Manager::ExecuteQuery_Internal(Out_Code, this->SQL_Handle_Connection, &this->DB_Guard, SQL_Query);
+
+	if (!SQL_Handle)
+	{
+		return false;
+	}
+
+	SQLSMALLINT Temp_Count_Column = 0;
+	SQLRETURN RetCode = SQLNumResultCols(SQL_Handle, &Temp_Count_Column);
+
+	if (Temp_Count_Column == 0)
+	{
+		SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
+		SQL_Handle = nullptr;
+
+		Out_Code = "FF Microsoft ODBC : There is no column to get metadata !";
+		return false;
+	}
+
+	TArray<FODBC_ColumnInfo> Pool_CI;
+
+	for (size_t ColumnIndex = 0; ColumnIndex < Temp_Count_Column; ColumnIndex++)
+	{
+		// SQL columns start from 1, not 0.
+		const size_t SQL_Column_Index = ColumnIndex + 1;
+
+		const int32 Column_Name_Size = 256;
+		SQLCHAR Column_Name[Column_Name_Size];
+		SQLSMALLINT NameLen, DataType, DecimalDigits, Nullable;
+		SQLULEN Column_Size;
+
+		RetCode = SQLDescribeColA(SQL_Handle, SQL_Column_Index, Column_Name, Column_Name_Size, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
+
+		if (!SQL_SUCCEEDED(RetCode))
+		{
+			continue;
+		}
+
+		FODBC_ColumnInfo Each_Column;
+		Each_Column.Column_Name = UTF8_TO_TCHAR((const char*)Column_Name);
+		Each_Column.NameLenght = NameLen;
+		Each_Column.DataType = DataType;
+		Each_Column.DecimalDigits = DecimalDigits;
+		Each_Column.bIsNullable = Nullable == 1 ? true : false;
+		Each_Column.Column_Size = Column_Size;
+
+		switch (DataType)
+		{
+			// NVARCHAR & DATE & TIME
+			case -9:
+			{
+				Each_Column.DataTypeName = "NVARCHAR & DATE & TIME";
+				break;
+			}
+
+			// INT64 & BIGINT
+			case -5:
+			{
+				Each_Column.DataTypeName = "INT64 & BIGINT";
+				break;
+			}
+
+			// TIMESTAMP
+			case -2:
+			{
+				Each_Column.DataTypeName = "TIMESTAMP";
+				break;
+			}
+
+			// TEXT
+			case -1:
+			{
+				Each_Column.DataTypeName = "TEXT";
+				break;
+			}
+
+			// INT32
+			case 4:
+			{
+				Each_Column.DataTypeName = "INT32";
+				break;
+			}
+
+			// FLOAT & DOUBLE
+			case 6:
+			{
+				Each_Column.DataTypeName = "FLOAT & DOUBLE";
+				break;
+			}
+
+			// DATETIME
+			case 93:
+			{
+				Each_Column.DataTypeName = "DATETIME";
+				break;
+			}
+
+			default:
+			{
+				Each_Column.DataTypeName = "UNKNOWN";
+				break;
+			}
+		}
+
+		Pool_CI.Add(Each_Column);
+	}
+
+	SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
+	SQL_Handle = nullptr;
+
+	Out_Code = "FF Microsoft ODBC : Column infos extracted successfully !";
+	Out_ColumnInfos = Pool_CI;
+	return true;
+}
+
+void AODBC_Manager::LearnColumnsBp(FDelegate_ODBC_CI DelegateColumnInfos, const FString& SQL_Query)
 {
 	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, DelegateColumnInfos, SQL_Query]()
 		{
 			FString Out_Code;
-			SQLHSTMT SQL_Handle = AODBC_Manager::ExecuteQuery_Internal(Out_Code, this->SQL_Handle_Connection, &this->DB_Guard, SQL_Query);
-
-			if (!SQL_Handle)
-			{
-				AsyncTask(ENamedThreads::GameThread, [DelegateColumnInfos, Out_Code]()
-					{
-						DelegateColumnInfos.ExecuteIfBound(false, Out_Code, TArray<FODBC_ColumnInfo>());
-					}
-				);
-
-				return;
-			}
-
-			SQLSMALLINT Temp_Count_Column = 0;
-			SQLRETURN RetCode = SQLNumResultCols(SQL_Handle, &Temp_Count_Column);
-
-			if (Temp_Count_Column == 0)
-			{
-				SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
-				SQL_Handle = nullptr;
-
-				AsyncTask(ENamedThreads::GameThread, [DelegateColumnInfos]()
-					{
-						DelegateColumnInfos.ExecuteIfBound(false, "FF Microsoft ODBC : There is no column to get metadata !", TArray<FODBC_ColumnInfo>());
-					}
-				);
-
-				return;
-			}
-
-			TArray<FODBC_ColumnInfo> Pool_CI;
-
-			for (size_t ColumnIndex = 0; ColumnIndex < Temp_Count_Column; ColumnIndex++)
-			{
-				// SQL columns start from 1, not 0.
-				const size_t SQL_Column_Index = ColumnIndex + 1;
-
-				const int32 Column_Name_Size = 256;
-				SQLCHAR Column_Name[Column_Name_Size];
-				SQLSMALLINT NameLen, DataType, DecimalDigits, Nullable;
-				SQLULEN Column_Size;
-
-				RetCode = SQLDescribeColA(SQL_Handle, SQL_Column_Index, Column_Name, Column_Name_Size, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
-
-				if (!SQL_SUCCEEDED(RetCode))
-				{
-					continue;
-				}
-
-				FODBC_ColumnInfo EachMetaData;
-				EachMetaData.Column_Name = UTF8_TO_TCHAR((const char*)Column_Name);
-				EachMetaData.NameLenght = NameLen;
-				EachMetaData.DataType = DataType;
-				EachMetaData.DecimalDigits = DecimalDigits;
-				EachMetaData.bIsNullable = Nullable == 1 ? true : false;
-				EachMetaData.Column_Size = Column_Size;
-
-				Pool_CI.Add(EachMetaData);
-			}
+			TArray<FODBC_ColumnInfo> ColumnInfos;
+			const bool bResult = this->LearnColumns_Internal(ColumnInfos, Out_Code, SQL_Query);
 			
-			SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
-			SQL_Handle = nullptr;
-
-			AsyncTask(ENamedThreads::GameThread, [DelegateColumnInfos, Pool_CI]()
+			AsyncTask(ENamedThreads::GameThread, [DelegateColumnInfos, bResult, Out_Code, ColumnInfos]()
 				{
-					DelegateColumnInfos.ExecuteIfBound(true, "Column infos extracted.", Pool_CI);
+					DelegateColumnInfos.ExecuteIfBound(bResult, Out_Code, bResult ? ColumnInfos : TArray<FODBC_ColumnInfo>());
 				}
 			);
 		}

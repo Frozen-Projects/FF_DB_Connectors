@@ -96,23 +96,26 @@ public:
 	FString Column_Name;
 
 	UPROPERTY(BlueprintReadOnly)
-	int32 NameLenght = 0;
+	FString DataTypeName;
 
 	UPROPERTY(BlueprintReadOnly)
 	int32 DataType = 0;
 
 	UPROPERTY(BlueprintReadOnly)
-	int32 DecimalDigits = 0;
+	int32 NameLenght = 0;
 
 	UPROPERTY(BlueprintReadOnly)
-	bool bIsNullable = 0;
+	int32 DecimalDigits = 0;
 
 	UPROPERTY(BlueprintReadOnly)
 	int32 Column_Size = 0;
 
+	UPROPERTY(BlueprintReadOnly)
+	bool bIsNullable = 0;
+
 	bool operator == (const FODBC_ColumnInfo& Other) const
 	{
-		return Column_Name == Other.Column_Name && NameLenght == Other.NameLenght && DataType == Other.DataType && DecimalDigits == Other.DecimalDigits && bIsNullable == Other.bIsNullable && Column_Size == Other.Column_Size;
+		return Column_Name == Other.Column_Name && DataTypeName == Other.DataTypeName && DataType == Other.DataType && NameLenght == Other.NameLenght && DecimalDigits == Other.DecimalDigits && Column_Size == Other.Column_Size && bIsNullable == Other.bIsNullable;
 	}
 
 	bool operator != (const FODBC_ColumnInfo& Other) const
@@ -124,20 +127,22 @@ public:
 FORCEINLINE uint32 GetTypeHash(const FODBC_ColumnInfo& Key)
 {
 	uint32 Hash_Column_Name = GetTypeHash(Key.Column_Name);
-	uint32 Hash_NameLenght = GetTypeHash(Key.NameLenght);
+	uint32 Hash_DataTypeName = GetTypeHash(Key.DataTypeName);
 	uint32 Hash_DataType = GetTypeHash(Key.DataType);
+	uint32 Hash_NameLenght = GetTypeHash(Key.NameLenght);
 	uint32 Hash_DecimalDigits = GetTypeHash(Key.DecimalDigits);
-	uint32 Hash_bIsNullable = GetTypeHash(Key.bIsNullable);
 	uint32 Hash_Column_Size = GetTypeHash(Key.Column_Size);
+	uint32 Hash_bIsNullable = GetTypeHash(Key.bIsNullable);
 
 	uint32 GenericHash;
 	FMemory::Memset(&GenericHash, 0, sizeof(uint32));
 	GenericHash = HashCombine(GenericHash, Hash_Column_Name);
-	GenericHash = HashCombine(GenericHash, Hash_NameLenght);
+	GenericHash = HashCombine(GenericHash, Hash_DataTypeName);
 	GenericHash = HashCombine(GenericHash, Hash_DataType);
+	GenericHash = HashCombine(GenericHash, Hash_NameLenght);
 	GenericHash = HashCombine(GenericHash, Hash_DecimalDigits);
-	GenericHash = HashCombine(GenericHash, Hash_bIsNullable);
 	GenericHash = HashCombine(GenericHash, Hash_Column_Size);
+	GenericHash = HashCombine(GenericHash, Hash_bIsNullable);
 	return GenericHash;
 }
 

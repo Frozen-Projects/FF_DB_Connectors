@@ -37,6 +37,8 @@ private:
 	// We use this generic function in both ExecuteQuery and LearnColumns functions to prevent boilerplate code.
 	static SQLHSTMT ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Connection, FCriticalSection* In_Guard, const FString& SQL_Query);
 
+	virtual bool LearnColumns_Internal(TArray<FODBC_ColumnInfo>& Out_ColumnInfos, FString& Out_Code, const FString& SQL_Query);
+
 protected:
 
 	// Called when the game starts or when spawned.
@@ -75,9 +77,10 @@ public:
 	virtual void ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query);
 
 	/*
-	* This function will work even if there is no result set. You can use this on empty tables to generate APIs at runtime.
+	* This function will even work if table is empty and there is no result. It is important to know the column names and types to generate APIs.
+	* SELECT * FROM dbo.YourTable WHERE 1=0; -- This query will return zero rows but will give column info.
 	*/
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
-	virtual void LearnColumns(FDelegate_ODBC_CI DelegateColumnInfos, const FString& SQL_Query);
+	virtual void LearnColumnsBp(FDelegate_ODBC_CI DelegateColumnInfos, const FString& SQL_Query = "SELECT * FROM dbo.YourTable WHERE 1=0");
 
 };
