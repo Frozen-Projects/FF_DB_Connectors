@@ -16,6 +16,9 @@ DECLARE_DYNAMIC_DELEGATE_TwoParams(FDelegate_ODBC_Connection, bool, IsSuccessful
 UDELEGATE(BlueprintAuthorityOnly)
 DECLARE_DYNAMIC_DELEGATE_FourParams(FDelegate_ODBC_Execute, int32, IsSuccessfull, FString, Out_Code, UODBC_Result*, Out_Result, int64, Out_Affected);
 
+UDELEGATE(BlueprintAuthorityOnly)
+DECLARE_DYNAMIC_DELEGATE_ThreeParams(FDelegate_ODBC_CI, bool, IsSuccessfull, FString, Out_Code, const TArray<FODBC_ColumnInfo>&, Out_Infos);
+
 UCLASS()
 class FF_DB_CONNECTORS_API AODBC_Manager : public AActor
 {
@@ -30,6 +33,9 @@ private:
 	SQLHDBC SQL_Handle_Connection = NULL;
 
 	virtual bool ConnectDatabase(FString& Out_Code, const FString& ConnectionString);
+
+	// We use this generic function in both ExecuteQuery and LearnColumns functions to prevent boilerplate code.
+	static SQLHSTMT ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Connection, FCriticalSection* In_Guard, const FString& SQL_Query);
 
 protected:
 
@@ -67,5 +73,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
 	virtual void ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const FString& SQL_Query);
+
+	/*
+	* This function will work even if there is no result set. You can use this on empty tables to generate APIs at runtime.
+	*/
+	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
+	virtual void LearnColumns(FDelegate_ODBC_CI DelegateColumnInfos, const FString& SQL_Query);
 
 };

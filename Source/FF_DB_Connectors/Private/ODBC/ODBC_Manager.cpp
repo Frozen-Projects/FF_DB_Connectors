@@ -145,13 +145,13 @@ void AODBC_Manager::Disconnect()
 	}
 }
 
-int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_Code, SQLHDBC In_Connection, FCriticalSection* In_Guard, const FString& SQL_Query)
+SQLHSTMT AODBC_Manager::ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Connection, FCriticalSection* In_Guard, const FString& SQL_Query)
 {
 	FScopeLock Lock(In_Guard);
 
 	if (SQL_Query.IsEmpty())
 	{
-		return 0;
+		return nullptr;
 	}
 
 	if (!In_Connection)
@@ -166,7 +166,7 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF Microsoft ODBC : There was a problem while allocating statement handle : " + FString::FromInt(RetCode);
-		return 0;
+		return nullptr;
 	}
 
 	SQLWCHAR* SQLWCHARStatementString = (SQLWCHAR*)(*SQL_Query);
@@ -175,18 +175,24 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF Microsoft ODBC : There was a problem while preparing statement : " + FString::FromInt(RetCode);
-		return 0;
+		return SQLHSTMT();
 	}
 
 	RetCode = SQLSetStmtAttr(SQL_Handle, SQL_ATTR_NOSCAN, (SQLPOINTER)SQL_NOSCAN_ON, 0);
-
 	RetCode = SQLExecute(SQL_Handle);
 
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF Microsoft ODBC : There was a problem while executing query : " + FString::FromInt(RetCode);
-		return 0;
+		return nullptr;
 	}
+
+	return SQL_Handle;
+}
+
+int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_Code, SQLHDBC In_Connection, FCriticalSection* In_Guard, const FString& SQL_Query)
+{
+	SQLHSTMT SQL_Handle = AODBC_Manager::ExecuteQuery_Internal(Out_Code, In_Connection, In_Guard, SQL_Query);
 
 	FODBC_QueryHandler Temp_Handler;
 	Temp_Handler.SentQuery = SQL_Query;
@@ -249,6 +255,83 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, nullptr, Temp_Handler.ResultSet.Affected_Rows);
 					}
 
+				}
+			);
+		}
+	);
+}
+
+void AODBC_Manager::LearnColumns(FDelegate_ODBC_CI DelegateColumnInfos, const FString& SQL_Query)
+{
+	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, DelegateColumnInfos, SQL_Query]()
+		{
+			FString Out_Code;
+			SQLHSTMT SQL_Handle = AODBC_Manager::ExecuteQuery_Internal(Out_Code, this->SQL_Handle_Connection, &this->DB_Guard, SQL_Query);
+
+			if (!SQL_Handle)
+			{
+				AsyncTask(ENamedThreads::GameThread, [DelegateColumnInfos, Out_Code]()
+					{
+						DelegateColumnInfos.ExecuteIfBound(false, Out_Code, TArray<FODBC_ColumnInfo>());
+					}
+				);
+
+				return;
+			}
+
+			SQLSMALLINT Temp_Count_Column = 0;
+			SQLRETURN RetCode = SQLNumResultCols(SQL_Handle, &Temp_Count_Column);
+
+			if (Temp_Count_Column == 0)
+			{
+				SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
+				SQL_Handle = nullptr;
+
+				AsyncTask(ENamedThreads::GameThread, [DelegateColumnInfos]()
+					{
+						DelegateColumnInfos.ExecuteIfBound(false, "FF Microsoft ODBC : There is no column to get metadata !", TArray<FODBC_ColumnInfo>());
+					}
+				);
+
+				return;
+			}
+
+			TArray<FODBC_ColumnInfo> Pool_CI;
+
+			for (size_t ColumnIndex = 0; ColumnIndex < Temp_Count_Column; ColumnIndex++)
+			{
+				// SQL columns start from 1, not 0.
+				const size_t SQL_Column_Index = ColumnIndex + 1;
+
+				const int32 Column_Name_Size = 256;
+				SQLCHAR Column_Name[Column_Name_Size];
+				SQLSMALLINT NameLen, DataType, DecimalDigits, Nullable;
+				SQLULEN Column_Size;
+
+				RetCode = SQLDescribeColA(SQL_Handle, SQL_Column_Index, Column_Name, Column_Name_Size, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
+
+				if (!SQL_SUCCEEDED(RetCode))
+				{
+					continue;
+				}
+
+				FODBC_ColumnInfo EachMetaData;
+				EachMetaData.Column_Name = UTF8_TO_TCHAR((const char*)Column_Name);
+				EachMetaData.NameLenght = NameLen;
+				EachMetaData.DataType = DataType;
+				EachMetaData.DecimalDigits = DecimalDigits;
+				EachMetaData.bIsNullable = Nullable == 1 ? true : false;
+				EachMetaData.Column_Size = Column_Size;
+
+				Pool_CI.Add(EachMetaData);
+			}
+			
+			SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
+			SQL_Handle = nullptr;
+
+			AsyncTask(ENamedThreads::GameThread, [DelegateColumnInfos, Pool_CI]()
+				{
+					DelegateColumnInfos.ExecuteIfBound(true, "Column infos extracted.", Pool_CI);
 				}
 			);
 		}
