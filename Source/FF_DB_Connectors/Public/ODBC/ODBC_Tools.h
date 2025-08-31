@@ -183,10 +183,16 @@ private:
 
 	SQLHSTMT ODBC_Statement = nullptr;
 
-	// This function will get data in chunks, until all data is fetched. So we don't have static buffer size limitation.
+	/*
+	* This function will get data in chunks, until all data is fetched. So we don't have static buffer size limitation.
+	* ColumnIndex starts from 1.
+	*/ 
 	FString GetChunckData(int32 ColumnIndex);
 
-	// We don't want to iterate all columns in another "for loop", while we will already do it in "Record_Result".
+	/*
+	* We don't want to iterate all columns in another "for loop", while we will already do it in "Record_Result".
+	* ColumnIndex starts from 1.
+	*/
 	bool GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32 ColumnIndex, int32 MaxColumnNameLenght);
 
 public:
