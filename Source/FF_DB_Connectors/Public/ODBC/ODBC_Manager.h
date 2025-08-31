@@ -34,9 +34,10 @@ private:
 
 	virtual bool ConnectDatabase(FString& Out_Code, const FString& ConnectionString);
 
-	// We use this generic function in both ExecuteQuery and LearnColumns functions to prevent boilerplate code.
+	// This will only executes query and return its handle without recording it. We use this generic function in both "ExecuteQuery" and "LearnColumns_Internal" functions to prevent boilerplate code.
 	static SQLHSTMT ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Connection, FCriticalSection* In_Guard, const FString& SQL_Query);
 
+	// Internal side of "LearnColumnsBp" to make Async BP function cleaner.
 	virtual bool LearnColumns_Internal(TArray<FODBC_ColumnInfo>& Out_ColumnInfos, FString& Out_Code, const FString& SQL_Query);
 
 protected:
@@ -70,7 +71,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
 	virtual void Disconnect();
 
-	// Call this in FRunnableThread::Run() to execute a query. If there is a result, go to game thread and create a UODBC_Result object.
+	/*
+	* This will executes query and record its results.
+	* You can call this in FRunnableThread::Run().
+	* You should design like this this. If there is a result, go to game thread and create UODBC_Result object and set its result. (Check ExecuteQueryBp function as a sample.)
+	*/
 	static int32 ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_Code, SQLHDBC In_Connection, FCriticalSection* In_Guard, const FString& SQL_Query);
 
 	UFUNCTION(BlueprintCallable, Category = "Frozen Forest|Database Connectors|ODBC")
