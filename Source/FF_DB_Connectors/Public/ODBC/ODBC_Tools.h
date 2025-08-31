@@ -160,6 +160,20 @@ public:
 	TMap<FVector2D, FODBC_DataValue> Data_Pool;
 };
 
+class FF_DB_CONNECTORS_API ODBC_UtilityClass final
+{
+public:
+
+	// Non-instantiable utility class
+	ODBC_UtilityClass() = delete;
+	~ODBC_UtilityClass() = delete;
+	ODBC_UtilityClass(const ODBC_UtilityClass&) = delete;
+	ODBC_UtilityClass& operator=(const ODBC_UtilityClass&) = delete;
+
+	// Static-only API (kept your exact name/signature)
+	static int32 MaxColumnNameLength(SQLHDBC In_Connection);
+};
+
 USTRUCT()
 struct FF_DB_CONNECTORS_API FODBC_QueryHandler
 {
@@ -168,9 +182,6 @@ struct FF_DB_CONNECTORS_API FODBC_QueryHandler
 private:
 
 	SQLHSTMT ODBC_Statement = nullptr;
-	SQLHDBC ODBC_Connection = nullptr;
-
-	int32 MaxColumnNameLenght();
 
 	// This function will get data in chunks, until all data is fetched. So we don't have static buffer size limitation.
 	FString GetChunckData(int32 ColumnIndex);

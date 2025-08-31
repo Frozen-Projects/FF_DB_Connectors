@@ -1,22 +1,22 @@
 ﻿#include "ODBC/ODBC_Tools.h"
 
-int32 FODBC_QueryHandler::MaxColumnNameLenght()
+int32 ODBC_UtilityClass::MaxColumnNameLength(SQLHDBC In_Connection)
 {
-    if (!this->ODBC_Connection)
+    if (!In_Connection)
     {
         return 0;
     }
 
     SQLUSMALLINT MaxColNameLen = 0;
-    SQLRETURN RetCode = SQLGetInfo(this->ODBC_Connection, SQL_MAX_COLUMN_NAME_LEN, &MaxColNameLen, sizeof(MaxColNameLen), NULL);
+    SQLRETURN RetCode = SQLGetInfo(In_Connection, SQL_MAX_COLUMN_NAME_LEN, &MaxColNameLen, sizeof(MaxColNameLen), NULL);
 
     if (!SQL_SUCCEEDED(RetCode) || MaxColNameLen == 0)
     {
         return 0;
     }
 
-    // For null-terminator.
-    return MaxColNameLen += 1;
+    // +1 for the null terminator
+    return static_cast<int32>(MaxColNameLen + 1);
 }
 
 bool FODBC_QueryHandler::GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32 ColumnIndex, int32 MaxColumnNameLenght)
@@ -117,20 +117,19 @@ bool FODBC_QueryHandler::Record_Result(FString& Out_Code, SQLHDBC In_Connection,
 {
     if (!In_Connection)
     {
-        Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection handle is not valid !";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection handle is not valid !";
         return false;
     }
 
     if (!In_Statement)
     {
-        Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Statement handle is not valid !";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Statement handle is not valid !";
         return false;
     }
 
-    this->ODBC_Connection = In_Connection;
     this->ODBC_Statement = In_Statement;
-
-	const int32 MaxColNameLen = this->MaxColumnNameLenght();
+    
+    const int32 MaxColNameLen = ODBC_UtilityClass::MaxColumnNameLength(In_Connection);
 	TArray<FODBC_ResultSet> Pool_Result_Sets;
     SQLRETURN RetCode = 0;
 
@@ -298,13 +297,13 @@ bool FODBC_QueryHandler::Record_Result(FString& Out_Code, SQLHDBC In_Connection,
 
         this->ResultSet = Pool_Result_Sets.Num() > 0 ? Pool_Result_Sets.Last() : FODBC_ResultSet();
        
-        Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Result recording finished. Please check the result.";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Result recording finished. Please check the result.";
         return true;
     }
 
     catch (const std::exception& Exception)
     {
-        Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : " + Exception.what();
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : " + Exception.what();
         return false;
     }
 }

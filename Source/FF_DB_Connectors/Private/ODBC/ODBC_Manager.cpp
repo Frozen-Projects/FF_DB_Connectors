@@ -45,19 +45,19 @@ bool AODBC_Manager::CreateConnectionString(FString& Out_ConStr, FString ODBC_Sou
 {
 	if (ODBC_Source.IsEmpty())
 	{
-		Out_ConStr = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : A Target server shouldn't be empty !";
+		Out_ConStr = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : A Target server shouldn't be empty !";
 		return false;
 	}
 
 	if (Username.IsEmpty())
 	{
-		Out_ConStr = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Username shouldn't be empty !";
+		Out_ConStr = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Username shouldn't be empty !";
 		return false;
 	}
 
 	if (ServerInstance.IsEmpty())
 	{
-		Out_ConStr = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Server instance shouldn't be empty !";
+		Out_ConStr = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Server instance shouldn't be empty !";
 		return false;
 	}
 
@@ -70,14 +70,14 @@ bool AODBC_Manager::ConnectDatabase(FString& Out_Code, const FString& In_ConStr)
 	SQLRETURN RetCode = SQLAllocEnv(&this->ODBC_Environment);
 	if (!SQL_SUCCEEDED(RetCode))
 	{
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Failed to allocate SQL environment";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Failed to allocate SQL environment";
 		return false;
 	}
 
 	RetCode = SQLSetEnvAttr(this->ODBC_Environment, SQL_ATTR_ODBC_VERSION, reinterpret_cast<SQLPOINTER>(SQL_OV_ODBC3), 0);
 	if (!SQL_SUCCEEDED(RetCode))
 	{
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Failed to set the ODBC version.";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Failed to set the ODBC version.";
 		SQLFreeHandle(SQL_HANDLE_ENV, this->ODBC_Environment);
 		return false;
 	}
@@ -85,7 +85,7 @@ bool AODBC_Manager::ConnectDatabase(FString& Out_Code, const FString& In_ConStr)
 	RetCode = SQLAllocConnect(this->ODBC_Environment, &this->ODBC_Connection);
 	if (!SQL_SUCCEEDED(RetCode))
 	{
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Failed to allocate a connection handle.";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Failed to allocate a connection handle.";
 		SQLFreeHandle(SQL_HANDLE_ENV, this->ODBC_Environment);
 		return false;
 	}
@@ -96,12 +96,12 @@ bool AODBC_Manager::ConnectDatabase(FString& Out_Code, const FString& In_ConStr)
 		SQLFreeHandle(SQL_HANDLE_DBC, this->ODBC_Connection);
 		SQLFreeHandle(SQL_HANDLE_ENV, this->ODBC_Environment);
 
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection couldn't made !";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection couldn't made !";
 		return false;
 	}
 
 	this->ConnectionString = In_ConStr;
-	Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection successfully established !";
+	Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection successfully established !";
 	return true;
 }
 
@@ -148,7 +148,7 @@ SQLHSTMT AODBC_Manager::ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Conn
 
 	if (!In_Connection)
 	{
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection handle is not valid !";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection handle is not valid !";
 		return 0;
 	}
 
@@ -157,7 +157,7 @@ SQLHSTMT AODBC_Manager::ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Conn
 
 	if (!SQL_SUCCEEDED(RetCode))
 	{
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while allocating statement handle : " + FString::FromInt(RetCode);
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while allocating statement handle : " + FString::FromInt(RetCode);
 		return nullptr;
 	}
 
@@ -166,7 +166,7 @@ SQLHSTMT AODBC_Manager::ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Conn
 
 	if (!SQL_SUCCEEDED(RetCode))
 	{
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while preparing statement : " + FString::FromInt(RetCode);
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while preparing statement : " + FString::FromInt(RetCode);
 		return SQLHSTMT();
 	}
 
@@ -175,7 +175,7 @@ SQLHSTMT AODBC_Manager::ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Conn
 
 	if (!SQL_SUCCEEDED(RetCode))
 	{
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while executing query : " + FString::FromInt(RetCode);
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while executing query : " + FString::FromInt(RetCode);
 		return nullptr;
 	}
 
@@ -202,7 +202,7 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 
 	if (!bResult)
 	{
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while setting connection handle to query handler !";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while setting connection handle to query handler !";
 		Out_Handler = FODBC_QueryHandler();
 		return 0;
 	}
@@ -210,21 +210,21 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	else if (Temp_Handler.ResultSet.Count_Columns > 0)
 	{
 		Out_Handler = Temp_Handler;
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully !";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully !";
 		return 1;
 	}
 
 	else if (Temp_Handler.ResultSet.Affected_Rows > 0)
 	{
 		Out_Handler = Temp_Handler;
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully but it is update only !";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully but it is update only !";
 		return 2;
 	}
 
 	else
 	{
 		Out_Handler = FODBC_QueryHandler();
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully but there is no result or affected columns !";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully but there is no result or affected columns !";
 		return 0;
 	}
 }
@@ -274,23 +274,11 @@ bool AODBC_Manager::LearnColumns_Internal(TArray<FODBC_ColumnInfo>& Out_ColumnIn
 		SQLFreeHandle(SQL_HANDLE_STMT, ODBC_Statement);
 		ODBC_Statement = nullptr;
 
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There is no column to get metadata !";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There is no column to get metadata !";
 		return false;
 	}
 
-	SQLUSMALLINT MaxColNameLen = 0;
-	RetCode = SQLGetInfo(this->ODBC_Connection, SQL_MAX_COLUMN_NAME_LEN, &MaxColNameLen, sizeof(MaxColNameLen), NULL);
-
-	if (!SQL_SUCCEEDED(RetCode) || MaxColNameLen == 0)
-	{
-		SQLFreeHandle(SQL_HANDLE_STMT, ODBC_Statement);
-		ODBC_Statement = nullptr;
-		
-		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while getting max column name length !";
-		return false;
-	}
-
-	MaxColNameLen += 1; // For null-terminator.
+	const int32 MaxColNameLen = ODBC_UtilityClass::MaxColumnNameLength(this->ODBC_Connection);
 
 	TArray<FODBC_ColumnInfo> Pool_CI;
 
@@ -386,7 +374,7 @@ bool AODBC_Manager::LearnColumns_Internal(TArray<FODBC_ColumnInfo>& Out_ColumnIn
 	SQLFreeHandle(SQL_HANDLE_STMT, ODBC_Statement);
 	ODBC_Statement = nullptr;
 
-	Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Column infos extracted successfully !";
+	Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Column infos extracted successfully !";
 	Out_ColumnInfos = Pool_CI;
 	return true;
 }

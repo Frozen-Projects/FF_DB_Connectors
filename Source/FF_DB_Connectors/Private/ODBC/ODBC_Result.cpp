@@ -32,12 +32,12 @@ bool UODBC_Result::GetColumnInfos(FString& Out_Code, TArray<FODBC_ColumnInfo>& O
 {
     if (this->QueryHandler.ResultSet.Column_Infos.IsEmpty())
     {
-		Out_Code = "FF Microsoft ODBC : There is no column info !";
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There is no column info !";
         return false;
     }
 
 	Out_Infos = this->QueryHandler.ResultSet.Column_Infos;
-    Out_Code = "FF Microsoft ODBC : All metadata got successfully !";
+    Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : All metadata got successfully !";
     return true;
 }
 
@@ -45,13 +45,13 @@ bool UODBC_Result::GetColumnFromIndex(FString& Out_Code, TArray<FODBC_DataValue>
 {
     if (this->QueryHandler.ResultSet.Data_Pool.IsEmpty())
     {
-        Out_Code = "FF Microsoft ODBC : Data pool is empty !";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Data pool is empty !";
         return false;
     }
 
     if (Index_Column < 0 || Index_Column >= this->QueryHandler.ResultSet.Count_Columns)
     {
-        Out_Code = "FF Microsoft ODBC : Given column index is out of data pool's range !";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Given column index is out of data pool's range !";
         return false;
     }
 
@@ -63,7 +63,7 @@ bool UODBC_Result::GetColumnFromIndex(FString& Out_Code, TArray<FODBC_DataValue>
 
         if (!this->QueryHandler.ResultSet.Data_Pool.Contains(Position))
         {
-            Out_Code = "FF Microsoft ODBC : Target position couldn't be found ! : " + Position.ToString();
+            Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Target position couldn't be found ! : " + Position.ToString();
             return false;
         }
 
@@ -71,14 +71,14 @@ bool UODBC_Result::GetColumnFromIndex(FString& Out_Code, TArray<FODBC_DataValue>
 
         if (!EachData)
         {
-            Out_Code = "FF Microsoft ODBC : Found data is not valid : " + Position.ToString();
+            Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Found data is not valid : " + Position.ToString();
             return false;
         }
 
         Temp_Array.Add(*EachData);
     }
 
-    Out_Code = "FF Microsoft ODBC : Column exported successfully !";
+    Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Column exported successfully !";
     Out_Values = Temp_Array;
     return true;
 }
@@ -109,19 +109,19 @@ bool UODBC_Result::GetSingleData(FString& Out_Code, FODBC_DataValue& Out_Value, 
 {
     if (this->QueryHandler.ResultSet.Data_Pool.IsEmpty())
     {
-        Out_Code = "FF Microsoft ODBC : Data pool is empty !";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Data pool is empty !";
         return false;
     }
 
     if (Position.X < 0 || Position.Y < 0 || Position.X >= this->QueryHandler.ResultSet.Count_Columns || Position.Y >= this->QueryHandler.ResultSet.Count_Rows)
     {
-        Out_Code = "FF Microsoft ODBC : Given position is out of data pool's range !";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Given position is out of data pool's range !";
         return false;
     }
 
     if (!this->QueryHandler.ResultSet.Data_Pool.Contains(Position))
     {
-        Out_Code = "FF Microsoft ODBC : Target position couldn't be found ! : " + Position.ToString();
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Target position couldn't be found ! : " + Position.ToString();
         return false;
     }
 
@@ -129,7 +129,7 @@ bool UODBC_Result::GetSingleData(FString& Out_Code, FODBC_DataValue& Out_Value, 
 
     if (!DataValue)
     {
-        Out_Code = "FF Microsoft ODBC : Found data is not valid !";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Found data is not valid !";
         return false;
     }
 
@@ -141,13 +141,13 @@ bool UODBC_Result::GetRow(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values
 {
     if (this->QueryHandler.ResultSet.Data_Pool.IsEmpty())
     {
-        Out_Code = "FF Microsoft ODBC : Data pool is empty !";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Data pool is empty !";
         return false;
     }
 
     if (Index_Row < 0 || Index_Row >= this->QueryHandler.ResultSet.Count_Rows)
     {
-        Out_Code = "FF Microsoft ODBC : Given row index is out of data pool's range !";
+        Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Given row index is out of data pool's range !";
         return false;
     }
 
@@ -159,7 +159,7 @@ bool UODBC_Result::GetRow(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values
 
         if (!this->QueryHandler.ResultSet.Data_Pool.Contains(Position))
         {
-            Out_Code = "FF Microsoft ODBC : Target position couldn't be found ! : " + Position.ToString();
+            Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Target position couldn't be found ! : " + Position.ToString();
             return false;
         }
 
@@ -167,14 +167,14 @@ bool UODBC_Result::GetRow(FString& Out_Code, TArray<FODBC_DataValue>& Out_Values
 
         if (!EachData)
         {
-            Out_Code = "FF Microsoft ODBC : Found data is not valid : " + Position.ToString();
+            Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Found data is not valid : " + Position.ToString();
             return false;
         }
 
         Temp_Array.Add(*EachData);
     }
 
-    Out_Code = "FF Microsoft ODBC : Row exported successfully !";
+    Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Row exported successfully !";
     Out_Values = Temp_Array;
     return true;
 }
