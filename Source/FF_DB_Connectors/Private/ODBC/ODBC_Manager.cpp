@@ -28,7 +28,7 @@ void AODBC_Manager::Tick(float DeltaTime)
 
 SQLHDBC AODBC_Manager::GetConnectionHandle()
 {
-	return this->SQL_Handle_Connection;
+	return this->SQL_Connection;
 }
 
 FCriticalSection* AODBC_Manager::GetGuard()
@@ -67,34 +67,34 @@ bool AODBC_Manager::CreateConnectionString(FString& Out_ConStr, FString ODBC_Sou
 
 bool AODBC_Manager::ConnectDatabase(FString& Out_Code, const FString& In_ConStr)
 {
-	SQLRETURN RetCode = SQLAllocEnv(&this->SQL_Handle_Environment);
+	SQLRETURN RetCode = SQLAllocEnv(&this->SQL_Environment);
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF Microsoft ODBC : Failed to allocate SQL environment";
 		return false;
 	}
 
-	RetCode = SQLSetEnvAttr(this->SQL_Handle_Environment, SQL_ATTR_ODBC_VERSION, reinterpret_cast<SQLPOINTER>(SQL_OV_ODBC3), 0);
+	RetCode = SQLSetEnvAttr(this->SQL_Environment, SQL_ATTR_ODBC_VERSION, reinterpret_cast<SQLPOINTER>(SQL_OV_ODBC3), 0);
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF Microsoft ODBC : Failed to set the ODBC version.";
-		SQLFreeHandle(SQL_HANDLE_ENV, this->SQL_Handle_Environment);
+		SQLFreeHandle(SQL_HANDLE_ENV, this->SQL_Environment);
 		return false;
 	}
 
-	RetCode = SQLAllocConnect(this->SQL_Handle_Environment, &this->SQL_Handle_Connection);
+	RetCode = SQLAllocConnect(this->SQL_Environment, &this->SQL_Connection);
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF Microsoft ODBC : Failed to allocate a connection handle.";
-		SQLFreeHandle(SQL_HANDLE_ENV, this->SQL_Handle_Environment);
+		SQLFreeHandle(SQL_HANDLE_ENV, this->SQL_Environment);
 		return false;
 	}
 
-	RetCode = SQLDriverConnectA(this->SQL_Handle_Connection, NULL, (SQLCHAR*)TCHAR_TO_UTF8(*In_ConStr), SQL_NTS, NULL, 0, NULL, SQL_DRIVER_COMPLETE);
+	RetCode = SQLDriverConnectA(this->SQL_Connection, NULL, (SQLCHAR*)TCHAR_TO_UTF8(*In_ConStr), SQL_NTS, NULL, 0, NULL, SQL_DRIVER_COMPLETE);
 	if (!SQL_SUCCEEDED(RetCode))
 	{
-		SQLFreeHandle(SQL_HANDLE_DBC, this->SQL_Handle_Connection);
-		SQLFreeHandle(SQL_HANDLE_ENV, this->SQL_Handle_Environment);
+		SQLFreeHandle(SQL_HANDLE_DBC, this->SQL_Connection);
+		SQLFreeHandle(SQL_HANDLE_ENV, this->SQL_Environment);
 
 		Out_Code = "FF Microsoft ODBC : Connection couldn't made !";
 		return false;
@@ -131,17 +131,17 @@ void AODBC_Manager::CreateConnection(FDelegate_ODBC_Connection DelegateConnectio
 
 void AODBC_Manager::Disconnect()
 {
-	if (this->SQL_Handle_Connection)
+	if (this->SQL_Connection)
 	{
-		SQLDisconnect(this->SQL_Handle_Connection);
-		SQLFreeHandle(SQL_HANDLE_DBC, this->SQL_Handle_Connection);
-		this->SQL_Handle_Connection = NULL;
+		SQLDisconnect(this->SQL_Connection);
+		SQLFreeHandle(SQL_HANDLE_DBC, this->SQL_Connection);
+		this->SQL_Connection = NULL;
 	}
 
-	if (this->SQL_Handle_Environment)
+	if (this->SQL_Environment)
 	{
-		SQLFreeHandle(SQL_HANDLE_ENV, this->SQL_Handle_Environment);
-		this->SQL_Handle_Environment = NULL;
+		SQLFreeHandle(SQL_HANDLE_ENV, this->SQL_Environment);
+		this->SQL_Environment = NULL;
 	}
 }
 
@@ -201,14 +201,24 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 		return 0;
 	}
 
+	bool bResult = false;
 	FODBC_QueryHandler Temp_Handler;
 	Temp_Handler.SentQuery = SQL_Query;
 
-	bool bResult = Temp_Handler.SetSQLHandle(SQL_Handle);
+	bResult = Temp_Handler.SetConnectionHandle(In_Connection);
 
 	if (!bResult)
 	{
-		Out_Code = "FF Microsoft ODBC : There was a problem while setting statement handle to query handler !";
+		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : There was a problem while setting connection handle to query handler !";
+		Out_Handler = FODBC_QueryHandler();
+		return 0;
+	}
+
+	bResult = Temp_Handler.SetSQLHandle(SQL_Handle);
+
+	if (!bResult)
+	{
+		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : There was a problem while setting statement handle to query handler !";
 		Out_Handler = FODBC_QueryHandler();
 		return 0;
 	}
@@ -226,21 +236,21 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	else if (Temp_Handler.ResultSet.Count_Columns > 0)
 	{
 		Out_Handler = Temp_Handler;
-		Out_Code = "FF Microsoft ODBC : Query executed successfully !";
+		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : Query executed successfully !";
 		return 1;
 	}
 
 	else if (Temp_Handler.ResultSet.Affected_Rows > 0)
 	{
 		Out_Handler = Temp_Handler;
-		Out_Code = "FF Microsoft ODBC : Query executed successfully but it is update only !";
+		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : Query executed successfully but it is update only !";
 		return 2;
 	}
 
 	else
 	{
 		Out_Handler = FODBC_QueryHandler();
-		Out_Code = "FF Microsoft ODBC : Query executed successfully but there is no result or affected columns !";
+		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : Query executed successfully but there is no result or affected columns !";
 		return 0;
 	}
 }
@@ -251,7 +261,7 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 		{
 			FString Out_Code;
 			FODBC_QueryHandler Temp_Handler;
-			const int32 ExecuteResult = AODBC_Manager::ExecuteQuery(Temp_Handler, Out_Code, this->SQL_Handle_Connection, &this->DB_Guard, SQL_Query);
+			const int32 ExecuteResult = AODBC_Manager::ExecuteQuery(Temp_Handler, Out_Code, this->SQL_Connection, &this->DB_Guard, SQL_Query);
 
 			AsyncTask(ENamedThreads::GameThread, [this, DelegateExecute, Out_Code, Temp_Handler, ExecuteResult]()
 				{
@@ -275,24 +285,38 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 
 bool AODBC_Manager::LearnColumns_Internal(TArray<FODBC_ColumnInfo>& Out_ColumnInfos, FString& Out_Code, const FString& SQL_Query)
 {
-	SQLHSTMT SQL_Handle = AODBC_Manager::ExecuteQuery_Internal(Out_Code, this->SQL_Handle_Connection, &this->DB_Guard, SQL_Query);
+	SQLHSTMT SQL_Query_Handle = AODBC_Manager::ExecuteQuery_Internal(Out_Code, this->SQL_Connection, &this->DB_Guard, SQL_Query);
 
-	if (!SQL_Handle)
+	if (!SQL_Query_Handle)
 	{
 		return false;
 	}
 
 	SQLSMALLINT Temp_Count_Column = 0;
-	SQLRETURN RetCode = SQLNumResultCols(SQL_Handle, &Temp_Count_Column);
+	SQLRETURN RetCode = SQLNumResultCols(SQL_Query_Handle, &Temp_Count_Column);
 
 	if (Temp_Count_Column == 0)
 	{
-		SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
-		SQL_Handle = nullptr;
+		SQLFreeHandle(SQL_HANDLE_STMT, SQL_Query_Handle);
+		SQL_Query_Handle = nullptr;
 
 		Out_Code = "FF Microsoft ODBC : There is no column to get metadata !";
 		return false;
 	}
+
+	SQLUSMALLINT MaxColNameLen = 0;
+	RetCode = SQLGetInfo(this->SQL_Connection, SQL_MAX_COLUMN_NAME_LEN, &MaxColNameLen, sizeof(MaxColNameLen), NULL);
+
+	if (!SQL_SUCCEEDED(RetCode) || MaxColNameLen == 0)
+	{
+		SQLFreeHandle(SQL_HANDLE_STMT, SQL_Query_Handle);
+		SQL_Query_Handle = nullptr;
+		
+		Out_Code = "FF Microsoft ODBC : There was a problem while getting max column name length !";
+		return false;
+	}
+
+	MaxColNameLen += 1; // For null-terminator.
 
 	TArray<FODBC_ColumnInfo> Pool_CI;
 
@@ -301,20 +325,23 @@ bool AODBC_Manager::LearnColumns_Internal(TArray<FODBC_ColumnInfo>& Out_ColumnIn
 		// SQL columns start from 1, not 0.
 		const size_t SQL_Column_Index = ColumnIndex + 1;
 
-		const int32 Column_Name_Size = 256;
-		SQLCHAR Column_Name[Column_Name_Size];
+		TUniquePtr<SQLWCHAR[]> Column_NamePtr = MakeUnique<SQLWCHAR[]>(MaxColNameLen);
 		SQLSMALLINT NameLen, DataType, DecimalDigits, Nullable;
 		SQLULEN Column_Size;
 
-		RetCode = SQLDescribeColA(SQL_Handle, SQL_Column_Index, Column_Name, Column_Name_Size, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
+		RetCode = SQLDescribeColW(SQL_Query_Handle, SQL_Column_Index, Column_NamePtr.Get(), MaxColNameLen, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
 
 		if (!SQL_SUCCEEDED(RetCode))
 		{
 			continue;
 		}
 
+		const UTF16CHAR* Utf16Ptr = reinterpret_cast<const UTF16CHAR*>(Column_NamePtr.Get());
+		const FTCHARToWChar Converter = StringCast<TCHAR>(Utf16Ptr, NameLen);
+		FString ColumnName(Converter.Length(), Converter.Get());
+
 		FODBC_ColumnInfo Each_Column;
-		Each_Column.Column_Name = UTF8_TO_TCHAR((const char*)Column_Name);
+		Each_Column.Column_Name = ColumnName;
 		Each_Column.NameLenght = NameLen;
 		Each_Column.DataType = DataType;
 		Each_Column.DecimalDigits = DecimalDigits;
@@ -382,8 +409,8 @@ bool AODBC_Manager::LearnColumns_Internal(TArray<FODBC_ColumnInfo>& Out_ColumnIn
 		Pool_CI.Add(Each_Column);
 	}
 
-	SQLFreeHandle(SQL_HANDLE_STMT, SQL_Handle);
-	SQL_Handle = nullptr;
+	SQLFreeHandle(SQL_HANDLE_STMT, SQL_Query_Handle);
+	SQL_Query_Handle = nullptr;
 
 	Out_Code = "FF Microsoft ODBC : Column infos extracted successfully !";
 	Out_ColumnInfos = Pool_CI;

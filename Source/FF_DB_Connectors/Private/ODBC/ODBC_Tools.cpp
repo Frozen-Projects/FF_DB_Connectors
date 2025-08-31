@@ -9,18 +9,29 @@ FODBC_QueryHandler::~FODBC_QueryHandler()
     }
 }
 
-bool FODBC_QueryHandler::SetSQLHandle(SQLHSTMT In_SQL_Handle)
+bool FODBC_QueryHandler::SetSQLHandle(SQLHSTMT In_Handle)
 {
-    if (!In_SQL_Handle)
+    if (!In_Handle)
     {
         return false;
     }
 
-	this->SQL_Handle = In_SQL_Handle;
+	this->SQL_Handle = In_Handle;
     return true;
 }
 
-bool FODBC_QueryHandler::GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32 ColumnIndex)
+bool FODBC_QueryHandler::SetConnectionHandle(SQLHDBC In_Handle)
+{
+    if (!In_Handle)
+    {
+        return false;
+	}
+
+	this->SQL_Connection = In_Handle;
+    return true;
+}
+
+bool FODBC_QueryHandler::GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32 ColumnIndex, int32 MaxColumnNameLenght)
 {
     if (!this->SQL_Handle)
     {
@@ -35,20 +46,23 @@ bool FODBC_QueryHandler::GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32
         return false;
     }
 
-    const int32 Column_Name_Size = 256;
-    SQLCHAR Column_Name[Column_Name_Size];
+    TUniquePtr<SQLWCHAR[]> Column_NamePtr = MakeUnique<SQLWCHAR[]>(MaxColumnNameLenght);
     SQLSMALLINT NameLen, DataType, DecimalDigits, Nullable;
     SQLULEN Column_Size;
 
-    SQLRETURN RetCode = SQLDescribeColA(this->SQL_Handle, ColumnIndex, Column_Name, Column_Name_Size, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
+    SQLRETURN RetCode = SQLDescribeColW(this->SQL_Handle, ColumnIndex, Column_NamePtr.Get(), MaxColumnNameLenght, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
 
     if (!SQL_SUCCEEDED(RetCode))
     {
         return false;
     }
 
+    const UTF16CHAR* Utf16Ptr = reinterpret_cast<const UTF16CHAR*>(Column_NamePtr.Get());
+    const FTCHARToWChar Converter = StringCast<TCHAR>(Utf16Ptr, NameLen);
+    FString ColumnName(Converter.Length(), Converter.Get());
+
     FODBC_ColumnInfo EachMetaData;
-    EachMetaData.Column_Name = UTF8_TO_TCHAR((const char*)Column_Name);
+    EachMetaData.Column_Name = ColumnName;
     EachMetaData.NameLenght = NameLen;
     EachMetaData.DataType = DataType;
     EachMetaData.DecimalDigits = DecimalDigits;
@@ -113,14 +127,34 @@ FString FODBC_QueryHandler::GetChunckData(int32 SQL_Column_Index)
 
 bool FODBC_QueryHandler::Record_Result(FString& Out_Code)
 {
+    if (!this->SQL_Connection)
+    {
+        Out_Code = "FF_DB_Connectors::FODBC_QueryHandler::Record_Result : Connection handle is not valid !";
+        return false;
+    }
+
     if (!this->SQL_Handle)
     {
-        Out_Code = "FF Microsoft ODBC : Statement handle is not valid !";
+        Out_Code = "FF_DB_Connectors::FODBC_QueryHandler::Record_Result : Statement handle is not valid !";
         return false;
     }
 
     SQLRETURN RetCode = 0;
 	TArray<FODBC_ResultSet> Pool_Result_Sets;
+
+    SQLUSMALLINT MaxColNameLen = 0;
+    RetCode = SQLGetInfo(this->SQL_Connection, SQL_MAX_COLUMN_NAME_LEN, &MaxColNameLen, sizeof(MaxColNameLen), NULL);
+
+    if (!SQL_SUCCEEDED(RetCode) || MaxColNameLen == 0)
+    {
+        SQLFreeHandle(SQL_HANDLE_STMT, this->SQL_Handle);
+        this->SQL_Handle = nullptr;
+
+        Out_Code = "FF_DB_Connectors::FODBC_QueryHandler::Record_Result : There was a problem while getting max column name length !";
+        return false;
+    }
+
+	MaxColNameLen += 1; // For null-terminator.
 
     try
     {
@@ -158,7 +192,7 @@ bool FODBC_QueryHandler::Record_Result(FString& Out_Code)
                     if (Temp_Column_Infos.Num() != Temp_ColumnNumber)
                     {
                         FODBC_ColumnInfo EachMetaData;
-                        if (this->GetEachColumnInfo(EachMetaData, SQL_Column_Index))
+                        if (this->GetEachColumnInfo(EachMetaData, SQL_Column_Index, MaxColNameLen))
                         {
                             Temp_Column_Infos.Add(EachMetaData);
                         }
