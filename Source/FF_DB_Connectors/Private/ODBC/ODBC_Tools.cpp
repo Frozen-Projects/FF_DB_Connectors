@@ -1,45 +1,33 @@
 ﻿#include "ODBC/ODBC_Tools.h"
 
-FODBC_QueryHandler::~FODBC_QueryHandler()
+int32 FODBC_QueryHandler::MaxColumnNameLenght()
 {
-    if (this->SQL_Handle)
+    if (!this->ODBC_Connection)
     {
-        SQLFreeHandle(SQL_HANDLE_STMT, this->SQL_Handle);
-        this->SQL_Handle = nullptr;
-    }
-}
-
-bool FODBC_QueryHandler::SetSQLHandle(SQLHSTMT In_Handle)
-{
-    if (!In_Handle)
-    {
-        return false;
+        return 0;
     }
 
-	this->SQL_Handle = In_Handle;
-    return true;
-}
+    SQLUSMALLINT MaxColNameLen = 0;
+    SQLRETURN RetCode = SQLGetInfo(this->ODBC_Connection, SQL_MAX_COLUMN_NAME_LEN, &MaxColNameLen, sizeof(MaxColNameLen), NULL);
 
-bool FODBC_QueryHandler::SetConnectionHandle(SQLHDBC In_Handle)
-{
-    if (!In_Handle)
+    if (!SQL_SUCCEEDED(RetCode) || MaxColNameLen == 0)
     {
-        return false;
-	}
+        return 0;
+    }
 
-	this->SQL_Connection = In_Handle;
-    return true;
+    // For null-terminator.
+    return MaxColNameLen += 1;
 }
 
 bool FODBC_QueryHandler::GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32 ColumnIndex, int32 MaxColumnNameLenght)
 {
-    if (!this->SQL_Handle)
+    if (!this->ODBC_Statement)
     {
         return false;
     }
 
     SQLSMALLINT Temp_ColumnNumber;
-    SQLNumResultCols(SQL_Handle, &Temp_ColumnNumber);
+    SQLNumResultCols(this->ODBC_Statement, &Temp_ColumnNumber);
 
     if (Temp_ColumnNumber == 0)
     {
@@ -50,7 +38,7 @@ bool FODBC_QueryHandler::GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32
     SQLSMALLINT NameLen, DataType, DecimalDigits, Nullable;
     SQLULEN Column_Size;
 
-    SQLRETURN RetCode = SQLDescribeColW(this->SQL_Handle, ColumnIndex, Column_NamePtr.Get(), MaxColumnNameLenght, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
+    SQLRETURN RetCode = SQLDescribeColW(this->ODBC_Statement, ColumnIndex, Column_NamePtr.Get(), MaxColumnNameLenght, &NameLen, &DataType, &Column_Size, &DecimalDigits, &Nullable);
 
     if (!SQL_SUCCEEDED(RetCode))
     {
@@ -74,7 +62,7 @@ bool FODBC_QueryHandler::GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32
     return true;
 }
 
-FString FODBC_QueryHandler::GetChunckData(int32 SQL_Column_Index)
+FString FODBC_QueryHandler::GetChunckData(int32 ColumnIndex)
 {
     FString Accumulated;
 
@@ -86,7 +74,7 @@ FString FODBC_QueryHandler::GetChunckData(int32 SQL_Column_Index)
 
     while (true)
     {
-        SQLRETURN Ret = SQLGetData(this->SQL_Handle, static_cast<SQLUSMALLINT>(SQL_Column_Index), SQL_C_WCHAR, Buffer, BYTES, &Indicator);
+        SQLRETURN Ret = SQLGetData(this->ODBC_Statement, static_cast<SQLUSMALLINT>(ColumnIndex), SQL_C_WCHAR, Buffer, BYTES, &Indicator);
 
         if (Indicator == SQL_NULL_DATA)
         {
@@ -125,36 +113,26 @@ FString FODBC_QueryHandler::GetChunckData(int32 SQL_Column_Index)
     return Accumulated;
 }
 
-bool FODBC_QueryHandler::Record_Result(FString& Out_Code)
+bool FODBC_QueryHandler::Record_Result(FString& Out_Code, SQLHDBC In_Connection, SQLHSTMT In_Statement)
 {
-    if (!this->SQL_Connection)
+    if (!In_Connection)
     {
-        Out_Code = "FF_DB_Connectors::FODBC_QueryHandler::Record_Result : Connection handle is not valid !";
+        Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection handle is not valid !";
         return false;
     }
 
-    if (!this->SQL_Handle)
+    if (!In_Statement)
     {
-        Out_Code = "FF_DB_Connectors::FODBC_QueryHandler::Record_Result : Statement handle is not valid !";
+        Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Statement handle is not valid !";
         return false;
     }
 
-    SQLRETURN RetCode = 0;
+    this->ODBC_Connection = In_Connection;
+    this->ODBC_Statement = In_Statement;
+
+	const int32 MaxColNameLen = this->MaxColumnNameLenght();
 	TArray<FODBC_ResultSet> Pool_Result_Sets;
-
-    SQLUSMALLINT MaxColNameLen = 0;
-    RetCode = SQLGetInfo(this->SQL_Connection, SQL_MAX_COLUMN_NAME_LEN, &MaxColNameLen, sizeof(MaxColNameLen), NULL);
-
-    if (!SQL_SUCCEEDED(RetCode) || MaxColNameLen == 0)
-    {
-        SQLFreeHandle(SQL_HANDLE_STMT, this->SQL_Handle);
-        this->SQL_Handle = nullptr;
-
-        Out_Code = "FF_DB_Connectors::FODBC_QueryHandler::Record_Result : There was a problem while getting max column name length !";
-        return false;
-    }
-
-	MaxColNameLen += 1; // For null-terminator.
+    SQLRETURN RetCode = 0;
 
     try
     {
@@ -168,7 +146,7 @@ bool FODBC_QueryHandler::Record_Result(FString& Out_Code)
 
             // Update only queries like INSERT, UPDATE, DELETE, etc will return "Temp_AffectedRows" as -1.
             SQLLEN Temp_AffectedRows;
-            RetCode = SQLRowCount(this->SQL_Handle, &Temp_AffectedRows);
+            RetCode = SQLRowCount(this->ODBC_Statement, &Temp_AffectedRows);
 
             if (!SQL_SUCCEEDED(RetCode))
             {
@@ -176,14 +154,14 @@ bool FODBC_QueryHandler::Record_Result(FString& Out_Code)
             }
 
             SQLSMALLINT Temp_ColumnNumber;
-            RetCode = SQLNumResultCols(this->SQL_Handle, &Temp_ColumnNumber);
+            RetCode = SQLNumResultCols(this->ODBC_Statement, &Temp_ColumnNumber);
 
             if (!SQL_SUCCEEDED(RetCode))
             {
                 continue;
             }
 
-            while (SQLFetch(this->SQL_Handle) == SQL_SUCCESS)
+            while (SQLFetch(this->ODBC_Statement) == SQL_SUCCESS)
             {
                 for (int32 Column_Index = 0; Column_Index < Temp_ColumnNumber; Column_Index++)
                 {
@@ -316,22 +294,17 @@ bool FODBC_QueryHandler::Record_Result(FString& Out_Code)
 
             Pool_Result_Sets.Add(Each_Result_Set);
 
-        } while (SQL_SUCCEEDED(SQLMoreResults(this->SQL_Handle)));
-
-		SQLFreeHandle(SQL_HANDLE_STMT, this->SQL_Handle);
-		this->SQL_Handle = nullptr;
+        } while (SQL_SUCCEEDED(SQLMoreResults(this->ODBC_Statement)));
 
         this->ResultSet = Pool_Result_Sets.Num() > 0 ? Pool_Result_Sets.Last() : FODBC_ResultSet();
-        Out_Code = "FF Microsoft ODBC : Result recording finished. Please check the result.";
+       
+        Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Result recording finished. Please check the result.";
         return true;
     }
 
     catch (const std::exception& Exception)
     {
-        SQLFreeHandle(SQL_HANDLE_STMT, this->SQL_Handle);
-        this->SQL_Handle = nullptr;
-
-        Out_Code = Exception.what();
+        Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : " + Exception.what();
         return false;
     }
 }

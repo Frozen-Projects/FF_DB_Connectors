@@ -167,27 +167,20 @@ struct FF_DB_CONNECTORS_API FODBC_QueryHandler
 
 private:
 
-	// This handle is temporary. It will be valid only during the "Record_Result" function call.
-	SQLHSTMT SQL_Handle = nullptr;
+	SQLHSTMT ODBC_Statement = nullptr;
+	SQLHDBC ODBC_Connection = nullptr;
 
-	// We use this to determine column name max length. Don't free it even if operations failed or done. It is managed by the connection manager.
-	SQLHDBC SQL_Connection = NULL;
+	int32 MaxColumnNameLenght();
 
 	// This function will get data in chunks, until all data is fetched. So we don't have static buffer size limitation.
-	FString GetChunckData(int32 SQL_Column_Index);
+	FString GetChunckData(int32 ColumnIndex);
 
 	// We don't want to iterate all columns in another "for loop", while we will already do it in "Record_Result".
 	bool GetEachColumnInfo(FODBC_ColumnInfo& Out_MetaData, int32 ColumnIndex, int32 MaxColumnNameLenght);
 
 public:
 
-	FString SentQuery;
 	FODBC_ResultSet ResultSet;
-
-	bool SetSQLHandle(SQLHSTMT In_Handle);
-	bool SetConnectionHandle(SQLHDBC In_Handle);
-	bool Record_Result(FString& Out_Code);
-
-	~FODBC_QueryHandler();
+	bool Record_Result(FString& Out_Code, SQLHDBC In_Connection, SQLHSTMT In_Statement);
 
 };

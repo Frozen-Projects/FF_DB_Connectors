@@ -193,34 +193,16 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 		return 0;
 	}
 
-	bool bResult = false;
+
 	FODBC_QueryHandler Temp_Handler;
-	Temp_Handler.SentQuery = SQL_Query;
-
-	bResult = Temp_Handler.SetConnectionHandle(In_Connection);
-
-	if (!bResult)
-	{
-		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : There was a problem while setting connection handle to query handler !";
-		Out_Handler = FODBC_QueryHandler();
-		return 0;
-	}
-
-	bResult = Temp_Handler.SetSQLHandle(ODBC_Statement);
+	const bool bResult = Temp_Handler.Record_Result(Out_Code, In_Connection, ODBC_Statement);
+	
+	SQLFreeHandle(SQL_HANDLE_STMT, ODBC_Statement);
+	ODBC_Statement = nullptr;
 
 	if (!bResult)
 	{
-		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : There was a problem while setting statement handle to query handler !";
-		Out_Handler = FODBC_QueryHandler();
-		return 0;
-	}
-
-	// It already cleans up the statement handle after its finish.
-	bResult = Temp_Handler.Record_Result(Out_Code);
-
-	if (!bResult)
-	{
-		// Out_Code is already set in Record_Result function.
+		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while setting connection handle to query handler !";
 		Out_Handler = FODBC_QueryHandler();
 		return 0;
 	}
@@ -228,21 +210,21 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 	else if (Temp_Handler.ResultSet.Count_Columns > 0)
 	{
 		Out_Handler = Temp_Handler;
-		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : Query executed successfully !";
+		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully !";
 		return 1;
 	}
 
 	else if (Temp_Handler.ResultSet.Affected_Rows > 0)
 	{
 		Out_Handler = Temp_Handler;
-		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : Query executed successfully but it is update only !";
+		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully but it is update only !";
 		return 2;
 	}
 
 	else
 	{
 		Out_Handler = FODBC_QueryHandler();
-		Out_Code = "FF_DB_Connectors::AODBC_Manager::ExecuteQuery : Query executed successfully but there is no result or affected columns !";
+		Out_Code = FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully but there is no result or affected columns !";
 		return 0;
 	}
 }
