@@ -214,14 +214,14 @@ int32 AODBC_Manager::ExecuteQuery(FODBC_QueryHandler& Out_Handler, FString& Out_
 		return 0;
 	}
 
-	else if (Temp_Handler.ResultSet.Count_Columns > 0)
+	else if (Temp_Handler.GetResultSet().Count_Columns > 0)
 	{
 		Out_Handler = Temp_Handler;
 		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully !";
 		return 1;
 	}
 
-	else if (Temp_Handler.ResultSet.Affected_Rows > 0)
+	else if (Temp_Handler.GetResultSet().Affected_Rows > 0)
 	{
 		Out_Handler = Temp_Handler;
 		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Query executed successfully but it is update only !";
@@ -251,12 +251,12 @@ void AODBC_Manager::ExecuteQueryBp(FDelegate_ODBC_Execute DelegateExecute, const
 						UODBC_Result* ResultObject = NewObject<UODBC_Result>();
 						ResultObject->SetQueryResult(Temp_Handler);
 
-						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, ResultObject, Temp_Handler.ResultSet.Affected_Rows);
+						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, ResultObject, Temp_Handler.GetResultSet().Affected_Rows);
 					}
 
 					else
 					{
-						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, nullptr, Temp_Handler.ResultSet.Affected_Rows);
+						DelegateExecute.ExecuteIfBound(ExecuteResult, Out_Code, nullptr, Temp_Handler.GetResultSet().Affected_Rows);
 					}
 				}
 			);

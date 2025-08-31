@@ -182,6 +182,8 @@ struct FF_DB_CONNECTORS_API FODBC_QueryHandler
 private:
 
 	SQLHSTMT ODBC_Statement = nullptr;
+	
+	FODBC_ResultSet ResultSet;
 
 	/*
 	* This function will get data in chunks, until all data is fetched. So we don't have static buffer size limitation.
@@ -197,7 +199,7 @@ private:
 
 public:
 
-	FODBC_ResultSet ResultSet;
 	bool Record_Result(FString& Out_Code, SQLHDBC In_Connection, SQLHSTMT In_Statement);
+	const FODBC_ResultSet& GetResultSet() const;
 
 };

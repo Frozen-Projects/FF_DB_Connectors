@@ -307,3 +307,8 @@ bool FODBC_QueryHandler::Record_Result(FString& Out_Code, SQLHDBC In_Connection,
         return false;
     }
 }
+
+const FODBC_ResultSet& FODBC_QueryHandler::GetResultSet() const
+{
+	return this->ResultSet;
+}
