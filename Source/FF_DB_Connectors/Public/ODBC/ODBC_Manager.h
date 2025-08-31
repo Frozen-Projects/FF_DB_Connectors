@@ -29,8 +29,8 @@ private:
 	mutable FCriticalSection DB_Guard;
 
 	FString ConnectionString;
-	SQLHENV SQL_Environment = NULL;
-	SQLHDBC SQL_Connection = NULL;
+	SQLHENV ODBC_Environment = nullptr;
+	SQLHDBC ODBC_Connection = nullptr;
 
 	virtual bool ConnectDatabase(FString& Out_Code, const FString& ConnectionString);
 
