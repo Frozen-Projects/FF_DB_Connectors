@@ -161,16 +161,23 @@ SQLHSTMT AODBC_Manager::ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Conn
 		return nullptr;
 	}
 
-	SQLWCHAR* SQLWCHARStatementString = (SQLWCHAR*)(*SQL_Query);
-	RetCode = SQLPrepareW(SQL_Handle, SQLWCHARStatementString, SQL_NTS);
+	SQLWCHAR* StatementString = (SQLWCHAR*)(*SQL_Query);
+	RetCode = SQLPrepareW(SQL_Handle, StatementString, SQL_NTS);
 
 	if (!SQL_SUCCEEDED(RetCode))
 	{
 		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while preparing statement : " + FString::FromInt(RetCode);
-		return SQLHSTMT();
+		return nullptr;
 	}
 
 	RetCode = SQLSetStmtAttr(SQL_Handle, SQL_ATTR_NOSCAN, (SQLPOINTER)SQL_NOSCAN_ON, 0);
+
+	if (!SQL_SUCCEEDED(RetCode))
+	{
+		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : There was a problem while setting statement attribute : " + FString::FromInt(RetCode);
+		return nullptr;
+	}
+
 	RetCode = SQLExecute(SQL_Handle);
 
 	if (!SQL_SUCCEEDED(RetCode))
