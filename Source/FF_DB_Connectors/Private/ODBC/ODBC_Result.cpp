@@ -28,11 +28,6 @@ int64 UODBC_Result::GetAffectedRows()
     return this->QueryHandler.ResultSet.Affected_Rows;
 }
 
-FString UODBC_Result::GetQueryString()
-{
-    return this->QueryHandler.SentQuery;
-}
-
 bool UODBC_Result::GetColumnInfos(FString& Out_Code, TArray<FODBC_ColumnInfo>& Out_Infos)
 {
     if (this->QueryHandler.ResultSet.Column_Infos.IsEmpty())

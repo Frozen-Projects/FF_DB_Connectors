@@ -35,9 +35,6 @@ public:
 	UFUNCTION(BlueprintPure)
 	virtual int64 GetAffectedRows();
 
-	UFUNCTION(BlueprintPure)
-	virtual FString GetQueryString();
-
 	UFUNCTION(BlueprintCallable)
 	virtual bool GetColumnInfos(FString& Out_Code, TArray<FODBC_ColumnInfo>& Out_Infos);
 
