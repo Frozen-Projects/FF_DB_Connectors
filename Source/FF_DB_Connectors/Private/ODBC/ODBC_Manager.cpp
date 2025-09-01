@@ -149,7 +149,7 @@ SQLHSTMT AODBC_Manager::ExecuteQuery_Internal(FString& Out_Code, SQLHDBC In_Conn
 	if (!In_Connection)
 	{
 		Out_Code = "FF_DB_Connectors : " + FString(ANSI_TO_TCHAR(__FUNCSIG__)) + " : Connection handle is not valid !";
-		return 0;
+		return nullptr;
 	}
 
 	SQLHSTMT SQL_Handle = SQL_NULL_HSTMT;
